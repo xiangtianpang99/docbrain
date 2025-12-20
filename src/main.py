@@ -24,6 +24,10 @@ def main():
     ask_parser = subparsers.add_parser("ask", help="Ask a question based on indexed documents")
     ask_parser.add_argument("query", type=str, help="The question or prompt")
 
+    # Command: watch
+    watch_parser = subparsers.add_parser("watch", help="Monitor a directory for changes")
+    watch_parser.add_argument("directory", type=str, help="Path to the directory to monitor")
+
     args = parser.parse_args()
 
     if args.command == "index":
@@ -32,7 +36,11 @@ def main():
             return
         
         engine = IngestionEngine()
-        engine.ingest(args.directory)
+        engine.ingest_directory(args.directory)
+
+    elif args.command == "watch":
+        from src.monitor import start_watching
+        start_watching(args.directory)
 
     elif args.command == "ask":
         engine = QueryEngine()

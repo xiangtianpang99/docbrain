@@ -40,12 +40,19 @@ pip install -r requirements.txt
     # 索引
     ./run.sh index ./my_documents
     
-    # 查询
-    ./run.sh ask "总结一下上周的会议记录"
-    ```
+### 功能特性
+- **多格式支持**: 支持 Text, Markdown, PDF, Word (.docx), Excel (.xlsx), PowerPoint (.pptx).
+- **自动监听**: 支持监听指定目录，文件变动时自动更新索引。
 
-    或者使用 Python (需激活虚拟环境)：
-    ```bash
-    source .venv/bin/activate
-    python src/main.py ask "..."
-    ```
+### 常用命令
+使用 `run.sh` 脚本：
+```bash
+# 1. 建立/更新索引 (一次性)
+./run.sh index ./my_documents
+
+# 2. 启动自动监听 (持续更新)
+./run.sh watch ./my_documents
+
+# 3. 提问
+./run.sh ask "总结一下上周的会议记录"
+```
