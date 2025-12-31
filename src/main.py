@@ -26,6 +26,7 @@ def main():
     # Command: ask
     ask_parser = subparsers.add_parser("ask", help="Ask a question based on indexed documents")
     ask_parser.add_argument("query", type=str, help="The question or prompt")
+    ask_parser.add_argument("--quality", action="store_true", help="Enable Quality Mode (boost priority documents)")
 
     # Command: watch
     watch_parser = subparsers.add_parser("watch", help="Monitor a directory for changes")
@@ -54,7 +55,7 @@ def main():
 
     elif args.command == "ask":
         engine = QueryEngine()
-        response = engine.ask(args.query)
+        response = engine.ask(args.query, quality_mode=args.quality)
         print("\n" + "="*50)
         print("Answer:")
         print("="*50)

@@ -34,19 +34,59 @@ class QueryEngine:
             openai_api_base=base_url
         )
 
-    def retrieve_context(self, query: str, k: int = 8) -> List[str]:
+    def retrieve_context(self, query: str, k: int = 8, quality_mode: bool = False) -> List[str]:
         """
         Retrieve relevant document chunks for a query.
         """
-        print(f"Searching for context related to: '{query}'")
-        docs = self.vector_store.similarity_search(query, k=k)
-        return [doc.page_content for doc in docs]
+        if not quality_mode:
+            print(f"Searching for context related to: '{query}'")
+            docs = self.vector_store.similarity_search(query, k=k)
+            return [doc.page_content for doc in docs]
+        
+        # Quality Mode Implementation
+        print(f"Searching in Quality Mode for: '{query}'")
+        priority_keywords = os.getenv("PRIORITY_KEYWORDS", "").lower().split(",")
+        priority_keywords = [kw.strip() for kw in priority_keywords if kw.strip()]
+        
+        # 1. Fetch a larger pool of candidates
+        fetch_k = k * 3
+        docs_with_scores = self.vector_store.similarity_search_with_relevance_scores(query, k=fetch_k)
+        
+        # 2. Re-rank based on path keywords and recency
+        ranked_results = []
+        import time
+        now = time.time()
+        
+        for doc, score in docs_with_scores:
+            boost = 1.0
+            source_path = doc.metadata.get("source", "").lower()
+            mtime = doc.metadata.get("mtime", 0)
+            
+            # Boost based on keywords in path
+            if any(kw in source_path for kw in priority_keywords):
+                boost += 0.5  # 50% boost for priority paths
+                
+            # Slight boost for recency (within the last 30 days)
+            age_days = (now - mtime) / (24 * 3600)
+            if age_days < 30:
+                # Up to 20% boost for very recent files
+                recency_boost = 0.2 * (1 - (max(0, age_days) / 30))
+                boost += recency_boost
+                
+            final_score = score * boost
+            ranked_results.append((doc, final_score))
+            
+        # 3. Sort by final score and take top k
+        ranked_results.sort(key=lambda x: x[1], reverse=True)
+        top_docs = [r[0] for r in ranked_results[:k]]
+        
+        return [doc.page_content for doc in top_docs]
 
-    def ask(self, query: str) -> str:
+    def ask(self, query: str, quality_mode: bool = False) -> str:
         """
         Ask a question to the LLM with retrieved context.
         """
-        context_chunks = self.retrieve_context(query)
+        context_chunks = self.retrieve_context(query, quality_mode=quality_mode)
         if not context_chunks:
             return "No relevant context found in the knowledge base."
         
