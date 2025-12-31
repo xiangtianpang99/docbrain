@@ -45,14 +45,43 @@ pip install -r requirements.txt
 - **自动监听**: 支持监听指定目录，文件变动时自动更新索引。
 
 ### 常用命令
+
+#### Linux / macOS:
 使用 `run.sh` 脚本：
 ```bash
-# 1. 建立/更新索引 (一次性)
+# 1. 建立/更新索引
 ./run.sh index ./my_documents
 
-# 2. 启动自动监听 (持续更新)
+# 2. 启动自动监听
 ./run.sh watch ./my_documents
 
 # 3. 提问
-./run.sh ask "总结一下上周的会议记录"
+./run.sh ask "总结一下..."
 ```
+
+#### Windows:
+使用 `run.bat` 脚本：
+```cmd
+# 1. 建立/更新索引
+run.bat index ./my_documents
+
+# 2. 启动自动监听
+run.bat watch ./my_documents
+
+# 3. 提问
+run.bat ask "总结一下..."
+```
+
+### 环境要求
+- **Python**: 3.8+
+- **系统**: Windows, Linux, macOS 均支持。
+- **依赖安装**:
+  ```bash
+  python -m venv .venv
+  # macOS/Linux:
+  source .venv/bin/activate
+  # Windows:
+  .venv\Scripts\activate
+  
+  pip install -r requirements.txt
+  ```
