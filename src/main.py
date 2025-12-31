@@ -28,6 +28,9 @@ def main():
     watch_parser = subparsers.add_parser("watch", help="Monitor a directory for changes")
     watch_parser.add_argument("directory", type=str, help="Path to the directory to monitor")
 
+    # Command: list
+    subparsers.add_parser("list", help="List all indexed documents and their stats")
+
     args = parser.parse_args()
 
     if args.command == "index":
@@ -41,6 +44,10 @@ def main():
     elif args.command == "watch":
         from src.monitor import start_watching
         start_watching(args.directory)
+
+    elif args.command == "list":
+        engine = QueryEngine()
+        print(engine.list_documents())
 
     elif args.command == "ask":
         engine = QueryEngine()

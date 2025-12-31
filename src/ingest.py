@@ -66,8 +66,16 @@ class IngestionEngine:
             if not content.strip():
                 return []
             
+            # Get file stats for metadata
+            stats = os.stat(file_path)
+            metadata = {
+                "source": file_path,
+                "file_size": stats.st_size,
+                "mtime": stats.st_mtime
+            }
+            
             # Return as a single document (splitter will handle chunking)
-            return [Document(page_content=content, metadata={"source": file_path})]
+            return [Document(page_content=content, metadata=metadata)]
 
         except Exception as e:
             print(f"Error parsing {file_path}: {e}")

@@ -73,6 +73,58 @@ User Question/Request: {query}
         except Exception as e:
             return f"Error communicating with LLM: {e}"
 
+    def list_documents(self):
+        """
+        List all documents in the vector store with their metadata.
+        """
+        print("Fetching document list from vector store...")
+        try:
+            # Fetch all metadata from ChromaDB
+            data = self.vector_store.get()
+            metadatas = data.get("metadatas", [])
+            
+            if not metadatas:
+                return "The knowledge base is empty."
+
+            # Group by source
+            docs_summary = {}
+            for m in metadatas:
+                source = m.get("source", "Unknown")
+                if source not in docs_summary:
+                    docs_summary[source] = {
+                        "size": m.get("file_size", "N/A"),
+                        "mtime": m.get("mtime", 0),
+                        "chunks": 0
+                    }
+                docs_summary[source]["chunks"] += 1
+
+            # Format the output
+            import datetime
+            output = []
+            output.append(f"{'Source File':<60} | {'Size (KB)':<10} | {'Modified Time':<20} | {'Chunks':<6}")
+            output.append("-" * 105)
+            
+            for source, info in sorted(docs_summary.items()):
+                mtime_str = "N/A"
+                if info["mtime"]:
+                    mtime_str = datetime.datetime.fromtimestamp(info["mtime"]).strftime('%Y-%m-%d %H:%M:%S')
+                
+                size_str = "N/A"
+                if isinstance(info["size"], (int, float)):
+                    size_str = f"{info['size'] / 1024:.2f}"
+                
+                # Truncate long source paths if needed
+                display_source = source
+                if len(source) > 60:
+                    display_source = "..." + source[-57:]
+                    
+                output.append(f"{display_source:<60} | {size_str:<10} | {mtime_str:<20} | {info['chunks']:<6}")
+            
+            return "\n".join(output)
+            
+        except Exception as e:
+            return f"Error listing documents: {e}"
+
 if __name__ == "__main__":
     # Test run (requires DB to be populated first)
     engine = QueryEngine()
