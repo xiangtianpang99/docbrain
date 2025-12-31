@@ -34,7 +34,7 @@ class QueryEngine:
             openai_api_base=base_url
         )
 
-    def retrieve_context(self, query: str, k: int = 4) -> List[str]:
+    def retrieve_context(self, query: str, k: int = 8) -> List[str]:
         """
         Retrieve relevant document chunks for a query.
         """
@@ -52,9 +52,16 @@ class QueryEngine:
         
         context_str = "\n\n---\n\n".join(context_chunks)
         
-        system_prompt = """You are a helpful assistant for a local knowledge base. 
-Use the provided context to answer the user's question or complete their request.
-If the answer is not in the context, say so, but you can use your general knowledge to supplement if asked."""
+        system_prompt = """你是一个专业的个人知识管理助手和工作总结专家。
+你的任务是基于提供的本地文档片段，进行逻辑严密的归纳、总结和分析。
+
+遵循以下准则：
+1. **结构化输出**：按时间顺序、项目维度或逻辑分点进行整理，确保内容易于阅读。
+2. **区分事实与观点**：明确区分工作成果（事实）与个人心得或反思（分析）。
+3. **多文档关联**：尝试发现不同文档片段之间的内在联系，形成完整的进展视图。
+4. **诚实性**：如果提供的上下文不足以回答问题，请如实告知，并基于现有信息给出搜索建议。
+
+请使用专业、简洁且富有洞察力的语气回答。"""
 
         user_prompt = f"""Context from local documents:
 {context_str}

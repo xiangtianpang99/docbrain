@@ -15,6 +15,16 @@ class DocHandler(FileSystemEventHandler):
         filepath = event.src_path
         # Ignore hidden files or temp files
         filename = os.path.basename(filepath)
+        
+        # New: Ignore specific system/dev directories in path
+        ignore_dirs = {
+            "node_modules", ".git", ".venv", ".vscode", "__pycache__", 
+            "System Volume Information", "$RECYCLE.BIN", ".idea"
+        }
+        path_parts = set(filepath.replace("\\", "/").split("/"))
+        if not path_parts.isdisjoint(ignore_dirs):
+            return
+
         if filename.startswith('.') or filename.startswith('~'):
             return
 

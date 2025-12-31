@@ -83,8 +83,8 @@ class IngestionEngine:
 
     def split_documents(self, documents: List[Document]) -> List[Document]:
         text_splitter = RecursiveCharacterTextSplitter(
-            chunk_size=1000,
-            chunk_overlap=200,
+            chunk_size=1500,
+            chunk_overlap=300,
             separators=["\n\n", "\n", " ", ""]
         )
         return text_splitter.split_documents(documents)
@@ -142,16 +142,29 @@ class IngestionEngine:
 
     def ingest_directory(self, source_dir: str):
         """
-        Ingest all supported files in a directory.
+        Ingest all supported files in a directory, skipping system and temporary folders.
         """
+        ignore_dirs = {
+            "node_modules", ".git", ".venv", ".vscode", "__pycache__", 
+            "System Volume Information", "$RECYCLE.BIN", ".idea", ".DS_Store",
+            "venv", "env", "tmp", "temp"
+        }
+        
         print(f"Scanning directory: {source_dir}")
         patterns = ["**/*.txt", "**/*.md", "**/*.pdf", "**/*.docx", "**/*.xlsx", "**/*.pptx"]
         all_files = []
-        for pattern in patterns:
-            # Recursive glob might return relative paths
-            found = glob.glob(os.path.join(source_dir, pattern), recursive=True)
-            all_files.extend(found)
         
+        # Using os.walk for better control over directory exclusion
+        for root, dirs, files in os.walk(source_dir):
+            # In-place modification of dirs to skip ignored directories
+            dirs[:] = [d for d in dirs if d not in ignore_dirs and not d.startswith(".")]
+            
+            for file in files:
+                ext = os.path.splitext(file)[1].lower()
+                if any(file.endswith(p.replace("**/", "")) for p in patterns):
+                    all_files.append(os.path.join(root, file))
+        
+        print(f"Found {len(all_files)} files to process.")
         for file_path in all_files:
             # process_file will handle abspath conversion
             self.process_file(file_path)
