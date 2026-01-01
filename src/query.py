@@ -139,6 +139,8 @@ User Question/Request: {query}
                 source = m.get("source", "Unknown")
                 if source not in docs_summary:
                     docs_summary[source] = {
+                        "title": m.get("title", os.path.basename(source)),
+                        "type": m.get("type", "file"),
                         "size": m.get("file_size", "N/A"),
                         "mtime": m.get("mtime", 0),
                         "chunks": 0
@@ -148,24 +150,25 @@ User Question/Request: {query}
             # Format the output
             import datetime
             output = []
-            output.append(f"{'Source File':<60} | {'Size (KB)':<10} | {'Modified Time':<20} | {'Chunks':<6}")
-            output.append("-" * 105)
+            header = f"{'Type':<8} | {'Title/Source':<50} | {'Size':<8} | {'Modified Time':<20} | {'Chunks':<6}"
+            output.append(header)
+            output.append("-" * len(header))
             
-            for source, info in sorted(docs_summary.items()):
+            for source, info in sorted(docs_summary.items(), key=lambda x: x[1]['mtime'], reverse=True):
                 mtime_str = "N/A"
                 if info["mtime"]:
                     mtime_str = datetime.datetime.fromtimestamp(info["mtime"]).strftime('%Y-%m-%d %H:%M:%S')
                 
                 size_str = "N/A"
                 if isinstance(info["size"], (int, float)):
-                    size_str = f"{info['size'] / 1024:.2f}"
+                    size_str = f"{info['size'] / 1024:.1f} KB"
                 
-                # Truncate long source paths if needed
-                display_source = source
-                if len(source) > 60:
-                    display_source = "..." + source[-57:]
+                # Use title for display, fallback to truncated source
+                display_name = info["title"]
+                if len(display_name) > 50:
+                    display_name = display_name[:47] + "..."
                     
-                output.append(f"{display_source:<60} | {size_str:<10} | {mtime_str:<20} | {info['chunks']:<6}")
+                output.append(f"{info['type']:<8} | {display_name:<50} | {size_str:<8} | {mtime_str:<20} | {info['chunks']:<6}")
             
             return "\n".join(output)
             

@@ -70,6 +70,9 @@ class IngestionEngine:
             stats = os.stat(file_path)
             metadata = {
                 "source": file_path,
+                "title": os.path.basename(file_path),
+                "type": "file",
+                "extension": os.path.splitext(file_path)[1].lower(),
                 "file_size": stats.st_size,
                 "mtime": stats.st_mtime
             }
@@ -139,6 +142,39 @@ class IngestionEngine:
             self.vector_store._collection.delete(where={"source": file_path})
         except Exception as e:
             print(f"Error removing {file_path}: {e}")
+
+    def ingest_webpage(self, url: str, title: str, content: str):
+        """
+        Ingest content from a webpage.
+        """
+        print(f"Ingesting webpage: {title} ({url})")
+        
+        # 1. Deduplication: Remove old entries for this URL
+        try:
+            self.vector_store._collection.delete(where={"source": url})
+        except Exception:
+            pass
+            
+        # 2. Prepare metadata
+        import time
+        metadata = {
+            "source": url,
+            "title": title,
+            "type": "webpage",
+            "extension": ".html",
+            "mtime": time.time()
+        }
+        
+        # 3. Create document and split
+        doc = Document(page_content=content, metadata=metadata)
+        chunks = self.split_documents([doc])
+        
+        # 4. Add to store
+        if chunks:
+            self.vector_store.add_documents(chunks)
+            print(f"Webpage indexed: {len(chunks)} chunks.")
+            return len(chunks)
+        return 0
 
     def ingest_directory(self, source_dir: str):
         """
