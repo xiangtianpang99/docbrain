@@ -3,7 +3,7 @@ from typing import List, Optional
 from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_community.vectorstores import Chroma
 from langchain_community.chat_models import ChatOpenAI
-from langchain.schema import SystemMessage, HumanMessage
+from langchain_core.messages import SystemMessage, HumanMessage
 
 class QueryEngine:
     def __init__(self, persist_directory: str = "./chroma_db", model_name: str = "all-MiniLM-L6-v2"):
@@ -79,10 +79,64 @@ class QueryEngine:
         ranked_results.sort(key=lambda x: x[1], reverse=True)
         return [r[0] for r in ranked_results[:k]]
 
-    def ask(self, query: str, quality_mode: bool = False) -> str:
+    def evaluate_complexity(self, query: str) -> bool:
         """
-        Ask a question to the LLM with retrieved context.
+        Evaluate if a query is complex and requires CrewAI agents.
+        Returns True for complex queries, False for simple ones.
         """
+        print("Evaluating query complexity...")
+        system_prompt = """You are a query complexity classifier.
+        Analyze the user's query and determine if it is 'Simple' or 'Complex'.
+        
+        'Simple' queries:
+        - Ask for a specific fact.
+        - Ask to summarize a single concept.
+        - Are direct and unambiguous.
+        - Can likely be answered by retrieving a few documents.
+        
+        'Complex' queries:
+        - Require multi-step reasoning.
+        - Ask to compare multiple concepts or documents.
+        - Request a comprehensive plan, report, or analysis.
+        - Implies synthesizing information from various unrelated sources.
+        
+        Respond ONLY with 'Simple' or 'Complex'.
+        """
+        
+        messages = [
+            SystemMessage(content=system_prompt),
+            HumanMessage(content=query)
+        ]
+        
+        try:
+            response = self.llm.invoke(messages).content.strip().lower()
+            print(f"Query classification: {response}")
+            return "complex" in response
+        except Exception:
+            return False
+
+    def ask(self, query: str, quality_mode: bool = False, force_crew: bool = False, no_crew: bool = False) -> str:
+        """
+        Ask a question to the LLM with retrieved context or via CrewAI.
+        """
+        # 1. Check complexity
+        is_complex = not no_crew and (force_crew or self.evaluate_complexity(query))
+        
+        if is_complex:
+            if force_crew:
+                print(">>> Forced Routing to CrewAI Agents (Testing Mode) <<<")
+            else:
+                print(">>> Routing to CrewAI Agents (Complex Query) <<<")
+            try:
+                from src.crew_agent import DocBrainCrew
+                crew = DocBrainCrew(self)
+                return crew.run_crew(query)
+            except Exception as e:
+                print(f"CrewAI failed: {e}. Falling back to standard RAG.")
+                # Fallback to standard RAG if CrewAI fails
+        
+        # 2. Standard RAG (Simple Query)
+        print(">>> Using Standard RAG (Simple Query) <<<")
         docs = self.retrieve_context(query, quality_mode=quality_mode)
         if not docs:
             return "No relevant context found in the knowledge base."
@@ -123,7 +177,7 @@ User Question/Request: {query}
         
         print("Sending request to LLM...")
         try:
-            response = self.llm(messages)
+            response = self.llm.invoke(messages)
             return response.content
         except Exception as e:
             return f"Error communicating with LLM: {e}"

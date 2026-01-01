@@ -12,3 +12,7 @@ python-pptx
 fastapi
 uvicorn
 markdownify
+crewai
+crewai-tools
+litellm
+pandas

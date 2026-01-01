@@ -6,7 +6,6 @@ __pycache__/
 
 # Data and Artifacts
 chroma_db/
-data/
 *.log
 
 # Environment Variables

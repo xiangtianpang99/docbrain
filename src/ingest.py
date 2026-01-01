@@ -3,8 +3,8 @@ import glob
 from typing import List, Optional
 from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_community.vectorstores import Chroma
-from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain.docstore.document import Document
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+from langchain_core.documents import Document
 
 # Loaders
 import pypdf
@@ -216,8 +216,7 @@ class IngestionEngine:
             dirs[:] = [d for d in dirs if d not in ignore_dirs and not d.startswith(".")]
             
             for file in files:
-                ext = os.path.splitext(file)[1].lower()
-                if any(file.endswith(p.replace("**/", "")) for p in patterns):
+                if any(file.lower().endswith(p.replace("**/*", "")) for p in patterns):
                     all_files.append(os.path.join(root, file))
         
         print(f"Found {len(all_files)} files to process.")

@@ -27,6 +27,8 @@ def main():
     ask_parser = subparsers.add_parser("ask", help="Ask a question based on indexed documents")
     ask_parser.add_argument("query", type=str, help="The question or prompt")
     ask_parser.add_argument("--quality", action="store_true", help="Enable Quality Mode (boost priority documents)")
+    ask_parser.add_argument("--crew", action="store_true", help="Force CrewAI mode (bypass complexity evaluation)")
+    ask_parser.add_argument("--no-crew", action="store_true", help="Force standard RAG mode (bypass CrewAI)")
 
     # Command: watch
     watch_parser = subparsers.add_parser("watch", help="Monitor a directory for changes")
@@ -55,7 +57,7 @@ def main():
 
     elif args.command == "ask":
         engine = QueryEngine()
-        response = engine.ask(args.query, quality_mode=args.quality)
+        response = engine.ask(args.query, quality_mode=args.quality, force_crew=args.crew, no_crew=args.no_crew)
         print("\n" + "="*50)
         print("Answer:")
         print("="*50)
