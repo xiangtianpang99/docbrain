@@ -92,45 +92,52 @@ class IngestionEngine:
         )
         return text_splitter.split_documents(documents)
 
-    def process_file(self, file_path: str):
+    def process_file(self, file_path: str, additional_duration: int = 0):
         """
         Ingest a single file: Delete old vectors -> Parse -> Split -> Add new vectors.
+        additional_duration: seconds to add to the existing file duration.
         """
         abs_path = os.path.abspath(file_path)
         print(f"Processing file: {abs_path}")
         
-        # 1. Remove existing vectors for this file to avoid duplicates
-        # ChromaDB delete by metadata
+        # 1. Fetch existing duration if any
+        existing_duration = 0
         try:
-            # Try deleting by absolute path
-            self.vector_store._collection.delete(where={"source": abs_path})
-            
-            # Also try deleting by raw path if it differs (legacy support)
-            if file_path != abs_path:
-                 self.vector_store._collection.delete(where={"source": file_path})
-            
-            # Also try deleting relative path from cwd (legacy support)
-            rel_path = os.path.relpath(abs_path)
-            if rel_path != abs_path and rel_path != file_path:
-                 self.vector_store._collection.delete(where={"source": rel_path})
-                 
-        except Exception as e:
-            # Maybe collection is empty or other issue, log minimal
+            results = self.vector_store._collection.get(where={"source": abs_path})
+            if results and results.get("metadatas"):
+                # All chunks for one file should have the same duration
+                existing_duration = results["metadatas"][0].get("duration", 0)
+        except Exception:
             pass
 
-        # 2. Parse
+        total_duration = int(existing_duration + additional_duration)
+
+        # 2. Remove existing vectors for this file to avoid duplicates
+        try:
+            self.vector_store._collection.delete(where={"source": abs_path})
+            # Clean up potential legacy paths
+            rel_path = os.path.relpath(abs_path)
+            if rel_path != abs_path:
+                 self.vector_store._collection.delete(where={"source": rel_path})
+        except Exception:
+            pass
+
+        # 3. Parse
         documents = self.parse_file(abs_path)
         if not documents:
-            print(f"No content found in {file_path} or parse error.")
             return
 
-        # 3. Split
+        # Inject total duration into metadata
+        for doc in documents:
+            doc.metadata["duration"] = total_duration
+
+        # 4. Split
         chunks = self.split_documents(documents)
         
-        # 4. Add
+        # 5. Add
         if chunks:
             self.vector_store.add_documents(chunks)
-            print(f"Updated {file_path}: {len(chunks)} chunks indexed.")
+            print(f"Indexed {len(chunks)} chunks. Total duration: {total_duration}s")
         
     def remove_document(self, file_path: str):
         """
@@ -143,36 +150,49 @@ class IngestionEngine:
         except Exception as e:
             print(f"Error removing {file_path}: {e}")
 
-    def ingest_webpage(self, url: str, title: str, content: str):
+    def ingest_webpage(self, url: str, title: str, content: str, additional_duration: int = 0):
         """
         Ingest content from a webpage.
+        additional_duration: seconds spent on this page to add to total.
         """
         print(f"Ingesting webpage: {title} ({url})")
         
-        # 1. Deduplication: Remove old entries for this URL
+        # 1. Fetch existing duration if any
+        existing_duration = 0
+        try:
+            results = self.vector_store._collection.get(where={"source": url})
+            if results and results.get("metadatas"):
+                existing_duration = results["metadatas"][0].get("duration", 0)
+        except Exception:
+            pass
+
+        total_duration = int(existing_duration + additional_duration)
+
+        # 2. Deduplication: Remove old entries for this URL
         try:
             self.vector_store._collection.delete(where={"source": url})
         except Exception:
             pass
             
-        # 2. Prepare metadata
+        # 3. Prepare metadata
         import time
         metadata = {
             "source": url,
             "title": title,
             "type": "webpage",
             "extension": ".html",
+            "duration": total_duration,
             "mtime": time.time()
         }
         
-        # 3. Create document and split
+        # 4. Create document and split
         doc = Document(page_content=content, metadata=metadata)
         chunks = self.split_documents([doc])
         
-        # 4. Add to store
+        # 5. Add to store
         if chunks:
             self.vector_store.add_documents(chunks)
-            print(f"Webpage indexed: {len(chunks)} chunks.")
+            print(f"Webpage indexed: {len(chunks)} chunks. Total duration: {total_duration}s")
             return len(chunks)
         return 0
 

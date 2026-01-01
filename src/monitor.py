@@ -7,6 +7,10 @@ from src.ingest import IngestionEngine
 class DocHandler(FileSystemEventHandler):
     def __init__(self, ingestor: IngestionEngine):
         self.ingestor = ingestor
+        # Track last modification time to estimate effort
+        # { filepath: last_event_time }
+        self.file_activity = {}
+        self.session_threshold = 900  # 15 minutes gap starts a new session
 
     def process(self, event):
         if event.is_directory:
@@ -30,12 +34,26 @@ class DocHandler(FileSystemEventHandler):
 
         print(f"Event detected: {event.event_type} - {filepath}")
         
+        now = time.time()
+        additional_duration = 0
+        
+        if filepath in self.file_activity:
+            last_time = self.file_activity[filepath]
+            gap = now - last_time
+            if gap < self.session_threshold:
+                additional_duration = int(gap)
+        
+        # Update last seen time
+        self.file_activity[filepath] = now
+
         if event.event_type == 'deleted':
              self.ingestor.remove_document(filepath)
+             if filepath in self.file_activity:
+                 del self.file_activity[filepath]
         elif event.event_type in ['created', 'modified']:
              # Small delay to ensure file write is complete
              time.sleep(1)
-             self.ingestor.process_file(filepath)
+             self.ingestor.process_file(filepath, additional_duration=additional_duration)
         elif event.event_type == 'moved':
              # Handle rename: delete old, add new
              self.ingestor.remove_document(event.src_path)

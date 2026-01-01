@@ -22,6 +22,7 @@ class WebpagePayload(BaseModel):
     url: str
     title: str
     content: str  # Can be HTML or raw text
+    duration: Optional[int] = 0
     is_html: Optional[bool] = True
 
 def verify_token(authorization: Optional[str] = Header(None)):
@@ -47,7 +48,8 @@ async def ingest_webpage(payload: WebpagePayload, authorized: bool = Depends(ver
         chunks_count = engine.ingest_webpage(
             url=payload.url,
             title=payload.title,
-            content=content
+            content=content,
+            additional_duration=payload.duration
         )
         
         return {
