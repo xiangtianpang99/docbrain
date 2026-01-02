@@ -41,6 +41,11 @@ class IngestionEngine:
             elif ext == ".docx":
                 doc = docx.Document(file_path)
                 content = "\n".join([p.text for p in doc.paragraphs])
+            elif ext == ".doc":
+                # Using unstructured for legacy .doc
+                from unstructured.partition.auto import partition
+                elements = partition(filename=file_path)
+                content = "\n".join([str(el) for el in elements])
             elif ext == ".xlsx":
                 wb = openpyxl.load_workbook(file_path, data_only=True)
                 text_list = []
@@ -51,6 +56,15 @@ class IngestionEngine:
                         if row_text:
                             text_list.append(row_text)
                 content = "\n".join(text_list)
+            elif ext == ".xls":
+                # Using pandas with xlrd for legacy .xls
+                import pandas as pd
+                df_dict = pd.read_excel(file_path, sheet_name=None, engine='xlrd')
+                text_list = []
+                for sheet_name, df in df_dict.items():
+                    text_list.append(f"Sheet: {sheet_name}")
+                    text_list.append(df.to_string(index=False))
+                content = "\n".join(text_list)
             elif ext == ".pptx":
                 prs = Presentation(file_path)
                 text_list = []
@@ -59,6 +73,11 @@ class IngestionEngine:
                         if hasattr(shape, "text"):
                             text_list.append(shape.text)
                 content = "\n".join(text_list)
+            elif ext == ".ppt":
+                # Using unstructured for legacy .ppt
+                from unstructured.partition.auto import partition
+                elements = partition(filename=file_path)
+                content = "\n".join([str(el) for el in elements])
             else:
                 print(f"Unsupported file format: {file_path}")
                 return []
@@ -207,7 +226,12 @@ class IngestionEngine:
         }
         
         print(f"Scanning directory: {source_dir}")
-        patterns = ["**/*.txt", "**/*.md", "**/*.pdf", "**/*.docx", "**/*.xlsx", "**/*.pptx"]
+        patterns = [
+            "**/*.txt", "**/*.md", "**/*.pdf", 
+            "**/*.docx", "**/*.doc", 
+            "**/*.xlsx", "**/*.xls", 
+            "**/*.pptx", "**/*.ppt"
+        ]
         all_files = []
         
         # Using os.walk for better control over directory exclusion
