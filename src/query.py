@@ -182,33 +182,46 @@ User Question/Request: {query}
         except Exception as e:
             return f"Error communicating with LLM: {e}"
 
-    def list_documents(self):
+    def get_documents_data(self):
         """
-        List all documents in the vector store with their metadata.
+        Get all documents in the vector store as a list of dictionaries.
         """
         print("Fetching document list from vector store...")
         try:
-            # Fetch all metadata from ChromaDB
             data = self.vector_store.get()
             metadatas = data.get("metadatas", [])
             
             if not metadatas:
-                return "The knowledge base is empty."
+                return []
 
-            # Group by source
             docs_summary = {}
             for m in metadatas:
                 source = m.get("source", "Unknown")
                 if source not in docs_summary:
                     docs_summary[source] = {
+                        "source": source,
                         "title": m.get("title", os.path.basename(source)),
                         "type": m.get("type", "file"),
                         "duration": m.get("duration", 0),
-                        "size": m.get("file_size", "N/A"),
+                        "file_size": m.get("file_size", "N/A"),
                         "mtime": m.get("mtime", 0),
                         "chunks": 0
                     }
                 docs_summary[source]["chunks"] += 1
+            
+            return list(docs_summary.values())
+        except Exception as e:
+            print(f"Error fetching document data: {e}")
+            return []
+
+    def list_documents(self):
+        """
+        List all documents in the vector store with their metadata.
+        """
+        try:
+            docs_data = self.get_documents_data()
+            if not docs_data:
+                return "The knowledge base is empty."
 
             # Format the output
             # Format the output
@@ -219,7 +232,7 @@ User Question/Request: {query}
             output.append(header)
             output.append("-" * len(header))
             
-            for source, info in sorted(docs_summary.items(), key=lambda x: x[1]['mtime'], reverse=True):
+            for info in sorted(docs_data, key=lambda x: x['mtime'], reverse=True):
                 mtime_str = "N/A"
                 if info["mtime"]:
                     mtime_str = datetime.datetime.fromtimestamp(info["mtime"]).strftime('%Y-%m-%d %H:%M:%S')
@@ -229,6 +242,7 @@ User Question/Request: {query}
                 effort_str = f"{duration_sec // 60}m {duration_sec % 60}s"
                 
                 # Format display source
+                source = info["source"]
                 if info["type"] == "webpage":
                     display_source = f"{info['title']} ({source})"
                 else:
