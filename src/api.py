@@ -93,7 +93,9 @@ def get_config(authorized: bool = Depends(verify_token)):
     return config_manager.config
 
 @app.post("/config")
-def set_config(payload: ConfigPayload, authorized: bool = Depends(verify_token)):
+def set_config(payload: ConfigPayload, background_tasks: BackgroundTasks, authorized: bool = Depends(verify_token)):
+    old_paths = set(config_manager.get("watch_paths", []))
+    
     update_data = {}
     if payload.watch_paths is not None:
         update_data["watch_paths"] = payload.watch_paths
@@ -107,13 +109,28 @@ def set_config(payload: ConfigPayload, authorized: bool = Depends(verify_token))
         update_data["api_key"] = payload.api_key
     if payload.deepseek_api_key is not None:
         update_data["deepseek_api_key"] = payload.deepseek_api_key
-        # Also update env for heavy libraries that might depend on os.getenv
         os.environ["DEEPSEEK_API_KEY"] = payload.deepseek_api_key
 
     if update_data:
         config_manager.update(update_data)
         
-        # Apply changes immediately to services
+        # Handle Path Changes
+        if "watch_paths" in update_data:
+            new_paths = set(update_data["watch_paths"])
+            
+            # 1. Handle Removed Paths -> Clean up DB
+            removed_paths = old_paths - new_paths
+            for path in removed_paths:
+                print(f"Config: Path removed {path}. Cleaning up documents...")
+                engine.remove_documents_by_root(path)
+            
+            # 2. Handle Added Paths -> Trigger Indexing
+            added_paths = new_paths - old_paths
+            if added_paths:
+                print(f"Config: New paths added {added_paths}. Triggering ingestion...")
+                background_tasks.add_task(scheduler.run_ingestion, list(added_paths))
+
+        # Restart Monitor if needed
         if "watch_paths" in update_data or "enable_watchdog" in update_data:
             print("Config updated: Restarting Monitor...")
             global_monitor.start()

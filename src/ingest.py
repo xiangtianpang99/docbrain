@@ -174,6 +174,48 @@ class IngestionEngine:
         except Exception as e:
             print(f"Error removing {file_path}: {e}")
 
+    def remove_documents_by_root(self, root_path: str):
+        """
+        Remove all documents that belong to a specific root directory.
+        Since Chroma doesn't support 'startswith' in delete queries comfortably,
+        we fetch all metadata, filter in Python, and delete by ID.
+        """
+        try:
+            root_path = os.path.abspath(root_path)
+            print(f"Cleaning up documents from root: {root_path}")
+            
+            # 1. Get all documents
+            result = self.vector_store._collection.get()
+            if not result or not result['ids']:
+                return
+
+            ids_to_delete = []
+            sources = result['metadatas']
+            ids = result['ids']
+
+            # 2. Filter match
+            for i, metadata in enumerate(sources):
+                if metadata and 'source' in metadata:
+                    source = metadata['source']
+                    # Check if source starts with root_path
+                    # using commonpath is safer for path logic
+                    try:
+                        if os.path.commonpath([root_path, source]) == root_path:
+                            ids_to_delete.append(ids[i])
+                    except ValueError:
+                        continue # Different drivers
+
+            # 3. Delete
+            if ids_to_delete:
+                print(f"Found {len(ids_to_delete)} chunks to remove.")
+                self.vector_store._collection.delete(ids=ids_to_delete)
+                print("Cleanup complete.")
+            else:
+                print("No documents found for this root.")
+
+        except Exception as e:
+            print(f"Error cleaning root {root_path}: {e}")
+
     def ingest_webpage(self, url: str, title: str, content: str, additional_duration: int = 0):
         """
         Ingest content from a webpage.
