@@ -1,5 +1,11 @@
-
 import os
+import sys
+
+# Add project root to path and set CWD
+project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.append(project_root)
+os.chdir(project_root)
+
 from docx import Document
 from docx.shared import Inches
 import pandas as pd

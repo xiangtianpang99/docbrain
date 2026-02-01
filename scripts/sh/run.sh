@@ -3,7 +3,8 @@
 
 # Get the directory where the script is located
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-VENV_PYTHON="$SCRIPT_DIR/.venv/bin/python"
+PROJECT_ROOT="$SCRIPT_DIR/../.."
+VENV_PYTHON="$PROJECT_ROOT/.venv/bin/python"
 
 # Check if venv exists
 if [ ! -f "$VENV_PYTHON" ]; then
@@ -13,4 +14,4 @@ if [ ! -f "$VENV_PYTHON" ]; then
 fi
 
 # Execute the python script with the provided arguments
-"$VENV_PYTHON" "$SCRIPT_DIR/src/main.py" "$@"
+"$VENV_PYTHON" "$PROJECT_ROOT/src/main.py" "$@"

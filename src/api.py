@@ -1,4 +1,7 @@
-from fastapi import FastAPI, HTTPException, Header, Depends
+from contextlib import asynccontextmanager
+from fastapi import FastAPI, HTTPException, Header, Depends, Query
+from fastapi.responses import FileResponse
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional
 import os
@@ -14,7 +17,30 @@ from src.query import QueryEngine
 
 load_dotenv()
 
-app = FastAPI(title="docBrain API", description="API for browser extension integration")
+# Global Engines (Initialized in lifespan)
+engine = None
+query_engine = None
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Load engines on startup
+    print("Loading AI Engines...")
+    global engine, query_engine
+    engine = IngestionEngine()
+    query_engine = QueryEngine()
+    print("AI Engines Loaded successfully.")
+    yield
+    # Clean up (if needed)
+
+app = FastAPI(title="docBrain API", description="API for browser extension integration", lifespan=lifespan)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # Security: Simple API Key
 API_KEY = os.getenv("API_KEY", "docbrain_default_key")
@@ -43,8 +69,8 @@ def verify_token(authorization: Optional[str] = Header(None)):
     return True
 
 # Initialize Engines
-engine = IngestionEngine()
-query_engine = QueryEngine()
+# engine = IngestionEngine()
+# query_engine = QueryEngine()
 
 def update_env(key: str, value: str):
     """Update .env file and current environment"""
@@ -126,6 +152,13 @@ async def query_kb(payload: QueryPayload, authorized: bool = Depends(verify_toke
             quality_mode=payload.quality_mode, 
             force_crew=payload.force_crew
         )
+        
+        # CrewAI returns a CrewOutput object. We need to extract the raw string.
+        if hasattr(response, 'raw'):
+            response = response.raw
+        elif not isinstance(response, str):
+            response = str(response)
+
         return {"status": "success", "response": response}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -138,6 +171,71 @@ def list_documents(authorized: bool = Depends(verify_token)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/files")
+def get_file(path: str = Query(..., description="Absolute path to the file"), authorized: bool = Depends(verify_token)):
+    """
+    Securely serve files for preview. 
+    Only allows access to files within the currently configured WATCH_DIR or default data directory.
+    """
+    try:
+        # Normalize paths
+        target_path = os.path.abspath(path)
+        
+        # Dynamic allowed paths
+        allowed_roots = []
+        
+        # 1. The main configured WATCH_DIR
+        watch_dir = os.getenv("WATCH_DIR")
+        if watch_dir:
+            allowed_roots.append(os.path.abspath(watch_dir))
+            
+        # 2. Always allow the default project 'data' folder as a fallback/base
+        project_data_dir = os.path.abspath(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data"))
+        allowed_roots.append(project_data_dir)
+        
+        # Check permissions
+        is_allowed = False
+        for root in allowed_roots:
+            # We use commonpath to ensure target_path is truly a subpath of root
+            try:
+                if os.path.commonpath([root, target_path]) == root:
+                    is_allowed = True
+                    break
+            except ValueError:
+                continue # Paths on different drives
+        
+        if not is_allowed:
+            # Helpful error for debugging
+            print(f"Access Denied: '{target_path}' is not in allowed roots: {allowed_roots}")
+            raise HTTPException(status_code=403, detail="Access denied: File is not in a configured source directory.")
+        
+        if not os.path.exists(target_path):
+             raise HTTPException(status_code=404, detail="File not found.")
+             
+        # Determine media type for inline display where possible
+        media_type = None
+        ext = os.path.splitext(target_path)[1].lower()
+        if ext == ".pdf":
+            media_type = "application/pdf"
+        elif ext in [".jpg", ".jpeg"]:
+            media_type = "image/jpeg"
+        elif ext == ".png":
+            media_type = "image/png"
+        elif ext == ".md":
+            media_type = "text/markdown"
+        elif ext in [".txt", ".log"]:
+            media_type = "text/plain"
+            
+        return FileResponse(target_path, media_type=media_type)
+        
+    except HTTPException as he:
+        raise he
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.delete("/documents")
 def delete_document(source: str, authorized: bool = Depends(verify_token)):
     try:
@@ -145,6 +243,22 @@ def delete_document(source: str, authorized: bool = Depends(verify_token)):
         return {"status": "success", "message": f"Document {source} removed."}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/debug/db")
+def debug_db(authorized: bool = Depends(verify_token)):
+    try:
+        count = query_engine.vector_store._collection.count()
+        cwd = os.getcwd()
+        abs_path = os.path.abspath("./chroma_db")
+        db_files = os.listdir("./chroma_db") if os.path.exists("./chroma_db") else "DIR_NOT_FOUND"
+        return {
+            "cwd": cwd,
+            "db_path_resolved": abs_path,
+            "doc_count": count,
+            "db_files": db_files
+        }
+    except Exception as e:
+        return {"error": str(e)}
 
 if __name__ == "__main__":
     import uvicorn

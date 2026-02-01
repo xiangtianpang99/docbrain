@@ -3,8 +3,10 @@
 # Port can be configured via environment variable
 PORT=${PORT:-8000}
 
-# Root directory
-ROOT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+# Script directory
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+# Project Root directory
+ROOT_DIR="$SCRIPT_DIR/../.."
 
 # Ensure venv exists
 if [ ! -d "$ROOT_DIR/.venv" ]; then

@@ -61,6 +61,10 @@ def setup_env():
 def main():
     print_banner("docBrain Bootstrap Loader")
     
+    # Switch to project root directory
+    os.chdir(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    print(f"Working Directory: {os.getcwd()}")
+
     check_python_version()
     venv_dir = setup_venv()
     install_requirements(venv_dir)

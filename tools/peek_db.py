@@ -1,5 +1,12 @@
 import os
+import sys
 from dotenv import load_dotenv
+
+# Add project root to path and set CWD
+project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.append(project_root)
+os.chdir(project_root)
+
 from src.query import QueryEngine
 
 load_dotenv()

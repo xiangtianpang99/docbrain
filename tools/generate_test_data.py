@@ -1,4 +1,11 @@
 import os
+import sys
+
+# Add project root to path and set CWD
+project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.append(project_root)
+os.chdir(project_root)
+
 from pypdf import PdfWriter
 from docx import Document
 
@@ -37,8 +44,7 @@ def create_excel(filename):
     print(f"Created {filename}")
 
 if __name__ == "__main__":
-    create_docx("data_monitor/test_doc.docx", "The secret password in the DOCX file is: laker.")
-    create_excel("data_monitor/sales_test.xlsx")
-if __name__ == "__main__":
-    create_docx("data_monitor/test_doc.docx", "The secret password in the DOCX file is: ALPHA.")
-
+    if not os.path.exists("data"):
+        os.makedirs("data")
+    create_docx("data/test_doc.docx", "The secret password in the DOCX file is: laker.")
+    create_excel("data/sales_test.xlsx")
