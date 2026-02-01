@@ -1,0 +1,10 @@
+{
+    "watch_paths": [
+        "./data"
+    ],
+    "schedule_interval_minutes": 60,
+    "enable_watchdog": true,
+    "enable_scheduler": true,
+    "api_key": "docbrain_default_key",
+    "deepseek_api_key": "sk-c4fe983fb7ce4ef4b209252950535acb"
+}

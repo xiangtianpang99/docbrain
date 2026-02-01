@@ -1,9 +1,9 @@
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, HTTPException, Header, Depends, Query
+from fastapi import FastAPI, HTTPException, Header, Depends, Query, BackgroundTasks
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, List
 import os
 import sys
 from dotenv import load_dotenv
@@ -14,6 +14,9 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.ingest import IngestionEngine
 from src.query import QueryEngine
+from src.config_manager import config_manager
+from src.scheduler import scheduler
+from src.monitor import global_monitor, start_watching
 
 load_dotenv()
 
@@ -28,9 +31,17 @@ async def lifespan(app: FastAPI):
     global engine, query_engine
     engine = IngestionEngine()
     query_engine = QueryEngine()
-    print("AI Engines Loaded successfully.")
+    
+    # Initialize background services based on config
+    print("Initializing Background Services...")
+    global_monitor.start() # Starts watching paths from config
+    await scheduler.start() # Starts scheduler loop
+    
+    print("AI Engines & Services Loaded successfully.")
     yield
-    # Clean up (if needed)
+    # Clean up
+    await scheduler.stop()
+    global_monitor.stop()
 
 app = FastAPI(title="docBrain API", description="API for browser extension integration", lifespan=lifespan)
 
@@ -43,20 +54,24 @@ app.add_middleware(
 )
 
 # Security: Simple API Key
-API_KEY = os.getenv("API_KEY", "docbrain_default_key")
+# Now we prefer the one from config, fallback to env or default
+def get_api_key():
+    return config_manager.get("api_key") or os.getenv("API_KEY", "docbrain_default_key")
 
 class WebpagePayload(BaseModel):
     url: str
     title: str
-    content: str  # Can be HTML or raw text
+    content: str
     duration: Optional[int] = 0
     is_html: Optional[bool] = True
 
 class ConfigPayload(BaseModel):
-    watch_dir: Optional[str] = None
+    watch_paths: Optional[List[str]] = None
+    schedule_interval_minutes: Optional[int] = None
+    enable_watchdog: Optional[bool] = None
+    enable_scheduler: Optional[bool] = None
     api_key: Optional[str] = None
     deepseek_api_key: Optional[str] = None
-    priority_keywords: Optional[str] = None
 
 class QueryPayload(BaseModel):
     query: str
@@ -64,34 +79,10 @@ class QueryPayload(BaseModel):
     force_crew: Optional[bool] = False
 
 def verify_token(authorization: Optional[str] = Header(None)):
-    if authorization != f"Bearer {API_KEY}":
+    current_key = get_api_key()
+    if authorization != f"Bearer {current_key}":
         raise HTTPException(status_code=401, detail="Invalid or missing API Key")
     return True
-
-# Initialize Engines
-# engine = IngestionEngine()
-# query_engine = QueryEngine()
-
-def update_env(key: str, value: str):
-    """Update .env file and current environment"""
-    env_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env")
-    lines = []
-    if os.path.exists(env_path):
-        with open(env_path, "r") as f:
-            lines = f.readlines()
-    
-    found = False
-    with open(env_path, "w") as f:
-        for line in lines:
-            if line.startswith(f"{key}="):
-                f.write(f"{key}={value}\n")
-                found = True
-            else:
-                f.write(line)
-        if not found:
-            f.write(f"{key}={value}\n")
-    
-    os.environ[key] = value
 
 @app.get("/health")
 def health_check():
@@ -99,28 +90,42 @@ def health_check():
 
 @app.get("/config")
 def get_config(authorized: bool = Depends(verify_token)):
-    return {
-        "WATCH_DIR": os.getenv("WATCH_DIR", "./data"),
-        "API_KEY": os.getenv("API_KEY", "docbrain_default_key"),
-        "DEEPSEEK_API_KEY": os.getenv("DEEPSEEK_API_KEY", ""),
-        "PRIORITY_KEYWORDS": os.getenv("PRIORITY_KEYWORDS", "")
-    }
+    return config_manager.config
 
 @app.post("/config")
 def set_config(payload: ConfigPayload, authorized: bool = Depends(verify_token)):
-    if payload.watch_dir is not None:
-        update_env("WATCH_DIR", payload.watch_dir)
+    update_data = {}
+    if payload.watch_paths is not None:
+        update_data["watch_paths"] = payload.watch_paths
+    if payload.schedule_interval_minutes is not None:
+        update_data["schedule_interval_minutes"] = payload.schedule_interval_minutes
+    if payload.enable_watchdog is not None:
+        update_data["enable_watchdog"] = payload.enable_watchdog
+    if payload.enable_scheduler is not None:
+        update_data["enable_scheduler"] = payload.enable_scheduler
     if payload.api_key is not None:
-        # Note: Changing API_KEY will require the client to use the new key immediately
-        update_env("API_KEY", payload.api_key)
-        global API_KEY
-        API_KEY = payload.api_key
+        update_data["api_key"] = payload.api_key
     if payload.deepseek_api_key is not None:
-        update_env("DEEPSEEK_API_KEY", payload.deepseek_api_key)
-    if payload.priority_keywords is not None:
-        update_env("PRIORITY_KEYWORDS", payload.priority_keywords)
-    
-    return {"status": "success", "message": "Configuration updated and persisted."}
+        update_data["deepseek_api_key"] = payload.deepseek_api_key
+        # Also update env for heavy libraries that might depend on os.getenv
+        os.environ["DEEPSEEK_API_KEY"] = payload.deepseek_api_key
+
+    if update_data:
+        config_manager.update(update_data)
+        
+        # Apply changes immediately to services
+        if "watch_paths" in update_data or "enable_watchdog" in update_data:
+            print("Config updated: Restarting Monitor...")
+            global_monitor.start()
+            
+    return {"status": "success", "message": "Configuration updated.", "config": config_manager.config}
+
+@app.post("/actions/index")
+async def trigger_indexing(background_tasks: BackgroundTasks, authorized: bool = Depends(verify_token)):
+    """Manually trigger immediate indexing of all watched paths."""
+    watch_paths = config_manager.get("watch_paths", [])
+    background_tasks.add_task(scheduler.run_ingestion, watch_paths)
+    return {"status": "success", "message": "Indexing started in background."}
 
 @app.post("/ingest/webpage")
 async def ingest_webpage(payload: WebpagePayload, authorized: bool = Depends(verify_token)):
@@ -153,7 +158,6 @@ async def query_kb(payload: QueryPayload, authorized: bool = Depends(verify_toke
             force_crew=payload.force_crew
         )
         
-        # CrewAI returns a CrewOutput object. We need to extract the raw string.
         if hasattr(response, 'raw'):
             response = response.raw
         elif not isinstance(response, str):
@@ -171,44 +175,36 @@ def list_documents(authorized: bool = Depends(verify_token)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
 @app.get("/files")
 def get_file(path: str = Query(..., description="Absolute path to the file"), authorized: bool = Depends(verify_token)):
     """
     Securely serve files for preview. 
-    Only allows access to files within the currently configured WATCH_DIR or default data directory.
+    Allows access to files within ANY of the configured watch_paths.
     """
     try:
-        # Normalize paths
         target_path = os.path.abspath(path)
         
-        # Dynamic allowed paths
+        # Construct allowed roots from config
         allowed_roots = []
-        
-        # 1. The main configured WATCH_DIR
-        watch_dir = os.getenv("WATCH_DIR")
-        if watch_dir:
-            allowed_roots.append(os.path.abspath(watch_dir))
-            
-        # 2. Always allow the default project 'data' folder as a fallback/base
+        user_paths = config_manager.get("watch_paths", [])
+        for p in user_paths:
+             allowed_roots.append(os.path.abspath(p))
+
+        # Always allow default data dir
         project_data_dir = os.path.abspath(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data"))
         allowed_roots.append(project_data_dir)
         
         # Check permissions
         is_allowed = False
         for root in allowed_roots:
-            # We use commonpath to ensure target_path is truly a subpath of root
             try:
                 if os.path.commonpath([root, target_path]) == root:
                     is_allowed = True
                     break
             except ValueError:
-                continue # Paths on different drives
+                continue 
         
         if not is_allowed:
-            # Helpful error for debugging
             print(f"Access Denied: '{target_path}' is not in allowed roots: {allowed_roots}")
             raise HTTPException(status_code=403, detail="Access denied: File is not in a configured source directory.")
         
@@ -255,7 +251,8 @@ def debug_db(authorized: bool = Depends(verify_token)):
             "cwd": cwd,
             "db_path_resolved": abs_path,
             "doc_count": count,
-            "db_files": db_files
+            "db_files": db_files,
+            "config": config_manager.config
         }
     except Exception as e:
         return {"error": str(e)}

@@ -73,27 +73,73 @@ class DocHandler(FileSystemEventHandler):
     def on_moved(self, event):
         self.process(event)
 
-def start_watching(directory: str):
-    if not os.path.exists(directory):
-        print(f"Directory {directory} does not exist.")
-        return
+from typing import List
+from src.config_manager import config_manager
 
-    print(f"Starting file monitor on: {directory}")
-    ingestor = IngestionEngine()
-    
-    # Initial scan
-    print("Performing initial scan...")
-    ingestor.ingest_directory(directory)
+class GlobalMonitor:
+    def __init__(self):
+        self.observer = None
+        self.ingestor = IngestionEngine()
+        self.handler = DocHandler(self.ingestor)
 
-    event_handler = DocHandler(ingestor)
-    observer = Observer()
-    observer.schedule(event_handler, directory, recursive=True)
-    observer.start()
-    
-    try:
-        while True:
-            time.sleep(1)
-    except KeyboardInterrupt:
-        observer.stop()
-    
-    observer.join()
+    def start(self):
+        self.stop() # Ensure previous observer is stopped
+        
+        if not config_manager.get("enable_watchdog", True):
+             print("Real-time monitoring is disabled in config.")
+             return
+
+        self.observer = Observer()
+        watch_paths = config_manager.get("watch_paths", ["./data"])
+        
+        scheduled_count = 0
+        for directory in watch_paths:
+            if os.path.exists(directory):
+                print(f"Monitor: Scheduling watch on {directory}")
+                self.observer.schedule(self.handler, directory, recursive=True)
+                scheduled_count += 1
+            else:
+                print(f"Monitor: Warning - Directory {directory} does not exist.")
+        
+        if scheduled_count > 0:
+            self.observer.start()
+            print(f"Monitor: Started watching {scheduled_count} directories.")
+        else:
+            print("Monitor: No valid directories to watch.")
+
+    def stop(self):
+        if self.observer:
+            self.observer.stop()
+            self.observer.join()
+            self.observer = None
+            print("Monitor: Stopped.")
+
+global_monitor = GlobalMonitor()
+
+def start_watching(directory: str = None):
+    # Backward compatibility wrapper for CLI
+    if directory:
+        # If CLI provides a specific directory, override config temporarily or just watch that one
+        if not os.path.exists(directory):
+            print(f"Directory {directory} does not exist.")
+            return
+
+        print(f"Starting file monitor on: {directory}")
+        ingestor = IngestionEngine()
+        print("Performing initial scan...")
+        ingestor.ingest_directory(directory)
+
+        event_handler = DocHandler(ingestor)
+        observer = Observer()
+        observer.schedule(event_handler, directory, recursive=True)
+        observer.start()
+        
+        try:
+            while True:
+                time.sleep(1)
+        except KeyboardInterrupt:
+            observer.stop()
+        observer.join()
+    else:
+        # Server mode uses the global monitor instance
+        global_monitor.start()
