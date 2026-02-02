@@ -1,8 +1,9 @@
 {
     "watch_paths": [
-        "./data"
+        "./data",
+        "C:\\Users\\MECHREVO\\Desktop\\manager"
     ],
-    "schedule_interval_minutes": 60,
+    "schedule_interval_minutes": 64,
     "enable_watchdog": true,
     "enable_scheduler": true,
     "api_key": "docbrain_default_key",
@@ -28,5 +29,6 @@
             "base_url": "https://api.siliconflow.cn/v1",
             "model": "deepseek-ai/DeepSeek-V3.2"
         }
-    }
+    },
+    "deepseek_api_key": ""
 }

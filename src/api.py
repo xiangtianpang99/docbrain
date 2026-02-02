@@ -149,6 +149,46 @@ def set_config(payload: ConfigPayload, background_tasks: BackgroundTasks, author
 
 from src.llm_provider import LLMFactory
 
+@app.post("/actions/browse_folder")
+def browse_folder(authorized: bool = Depends(verify_token)):
+    """
+    Open a native directory selection dialog using PowerShell (Windows).
+    Running on the server side (Backend).
+    """
+    try:
+        import subprocess
+        
+        # PowerShell command to open FolderBrowserDialog
+        ps_script = """
+        Add-Type -AssemblyName System.Windows.Forms
+        $f = New-Object System.Windows.Forms.FolderBrowserDialog
+        $f.ShowNewFolderButton = $true
+        if ($f.ShowDialog() -eq 'OK') {
+            return $f.SelectedPath
+        }
+        """
+        
+        # Run PowerShell command
+        result = subprocess.run(
+            ["powershell", "-Command", ps_script], 
+            capture_output=True, 
+            text=True, 
+            creationflags=subprocess.CREATE_NO_WINDOW
+        )
+        
+        folder_path = result.stdout.strip()
+        
+        if folder_path:
+            # Normalize path for Windows
+            folder_path = os.path.normpath(folder_path)
+            return {"status": "success", "path": folder_path}
+        else:
+            return {"status": "cancelled", "path": None}
+            
+    except Exception as e:
+        print(f"Browse Folder Error: {e}")
+        return {"status": "error", "message": str(e)}
+
 class TestLLMPayload(BaseModel):
     provider: str
     api_key: Optional[str] = ""

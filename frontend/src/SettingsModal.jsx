@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { X, Plus, Trash2, Save, RotateCw, Play, Clock, FolderOpen, Key, Cpu, CheckCircle, AlertCircle } from 'lucide-react'
+import { X, Plus, Trash2, Save, RotateCw, Play, Clock, FolderOpen, Key, Cpu, CheckCircle, AlertCircle, Settings, FolderPlus } from 'lucide-react'
 import axios from 'axios'
 import clsx from 'clsx'
 
@@ -155,7 +155,7 @@ export default function SettingsModal({ onClose, apiUrl, apiKey, onConfigUpdate 
                 {/* Header */}
                 <div className="p-4 border-b border-white/10 flex items-center justify-between bg-white/5 rounded-t-2xl shrink-0">
                     <h2 className="text-xl font-bold text-gray-100 flex items-center gap-2">
-                        <RotateCw size={20} className="text-red-500" />
+                        <Settings size={20} className="text-red-500" />
                         Settings & Configuration
                     </h2>
                     <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-full transition text-gray-400 hover:text-white">
@@ -345,6 +345,27 @@ export default function SettingsModal({ onClose, apiUrl, apiKey, onConfigUpdate 
                                                 >
                                                     <Plus size={18} />
                                                 </button>
+                                            </div>
+
+                                            <div className="flex justify-end">
+                                                 <button 
+                                                    onClick={async () => {
+                                                        try {
+                                                            const res = await axios.post(`${apiUrl}/actions/browse_folder`, {}, {
+                                                                headers: { 'Authorization': `Bearer ${apiKey}` }
+                                                            })
+                                                            if (res.data.status === 'success' && res.data.path) {
+                                                                setNewPath(res.data.path)
+                                                            }
+                                                        } catch (e) {
+                                                            console.error("Browse failed", e)
+                                                            alert("Failed to open browser dialog on server.")
+                                                        }
+                                                    }}
+                                                    className="text-xs flex items-center gap-1 text-gray-400 hover:text-white transition"
+                                                 >
+                                                    <FolderPlus size={12}/> Browse Local Folder
+                                                 </button>
                                             </div>
                                         </div>
                                     </div>
