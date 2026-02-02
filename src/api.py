@@ -3,7 +3,7 @@ from fastapi import FastAPI, HTTPException, Header, Depends, Query, BackgroundTa
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 import os
 import sys
 from dotenv import load_dotenv
@@ -72,6 +72,8 @@ class ConfigPayload(BaseModel):
     enable_scheduler: Optional[bool] = None
     api_key: Optional[str] = None
     deepseek_api_key: Optional[str] = None
+    active_provider: Optional[str] = None
+    llm_providers: Optional[Dict[str, Any]] = None
 
 class QueryPayload(BaseModel):
     query: str
@@ -107,10 +109,18 @@ def set_config(payload: ConfigPayload, background_tasks: BackgroundTasks, author
         update_data["enable_scheduler"] = payload.enable_scheduler
     if payload.api_key is not None:
         update_data["api_key"] = payload.api_key
+    
+    # Handle LLM configurations
+    if payload.active_provider is not None:
+        update_data["active_provider"] = payload.active_provider
+    if payload.llm_providers is not None:
+        update_data["llm_providers"] = payload.llm_providers
+        
+    # Legacy support (optional, can be removed if we want to force migration)
     if payload.deepseek_api_key is not None:
         update_data["deepseek_api_key"] = payload.deepseek_api_key
-        os.environ["DEEPSEEK_API_KEY"] = payload.deepseek_api_key
-
+        # We don't set env var here anymore, rely on provider config
+        
     if update_data:
         config_manager.update(update_data)
         
@@ -136,6 +146,60 @@ def set_config(payload: ConfigPayload, background_tasks: BackgroundTasks, author
             global_monitor.start()
             
     return {"status": "success", "message": "Configuration updated.", "config": config_manager.config}
+
+from src.llm_provider import LLMFactory
+
+class TestLLMPayload(BaseModel):
+    provider: str
+    api_key: Optional[str] = ""
+    base_url: Optional[str] = ""
+    model: Optional[str] = ""
+
+@app.post("/actions/test_llm")
+async def test_llm_connection(payload: TestLLMPayload, authorized: bool = Depends(verify_token)):
+    """
+    Test connectivity with a specific LLM provider configuration.
+    This creates a temporary provider instance and attempts a simple generation.
+    """
+    try:
+        # Construct a temporary config dictionary
+        config = {}
+        if payload.api_key:
+            config["api_key"] = payload.api_key
+        if payload.base_url:
+            config["base_url"] = payload.base_url
+        if payload.model:
+            config["model"] = payload.model
+            
+        print(f"Testing connection for provider: {payload.provider} with model {payload.model}...")
+        
+        # Get provider instance
+        provider = LLMFactory.get_provider(payload.provider)
+        
+        # Get LangChain LLM
+        llm = provider.get_langchain_llm(config)
+        
+        # invoke a simple test
+        from langchain_core.messages import HumanMessage
+        import time
+        
+        start_time = time.time()
+        response = llm.invoke([HumanMessage(content="Hello, reply with just 'OK'.")])
+        duration = time.time() - start_time
+        
+        return {
+            "status": "success",
+            "message": "Connection successful.",
+            "latency_ms": int(duration * 1000),
+            "reply": response.content
+        }
+        
+    except Exception as e:
+        print(f"LLM Test Failed: {e}")
+        return {
+            "status": "error", 
+            "message": str(e)
+        }
 
 @app.post("/actions/index")
 async def trigger_indexing(background_tasks: BackgroundTasks, authorized: bool = Depends(verify_token)):

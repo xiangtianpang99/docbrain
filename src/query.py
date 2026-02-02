@@ -2,8 +2,10 @@ import os
 from typing import List, Optional
 from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_community.vectorstores import Chroma
-from langchain_community.chat_models import ChatOpenAI
+from langchain_community.vectorstores import Chroma
 from langchain_core.messages import SystemMessage, HumanMessage
+from src.llm_provider import LLMFactory
+from src.config_manager import config_manager
 
 class QueryEngine:
     def __init__(self, persist_directory: str = None, model_name: str = "all-MiniLM-L6-v2"):
@@ -25,19 +27,13 @@ class QueryEngine:
             embedding_function=self.embedding_model
         )
         
-        # Initialize LLM. Expects DEEPSEEK_API_KEY in environment.
-        api_key = os.getenv("DEEPSEEK_API_KEY")
-        base_url = "https://api.deepseek.com" # DeepSeek API Base URL
-        
-        if not api_key:
-             print("WARNING: DEEPSEEK_API_KEY not found in environment. LLM calls might fail.")
-
-        self.llm = ChatOpenAI(
-            model_name="deepseek-chat", 
-            temperature=0.7,
-            openai_api_key=api_key,
-            openai_api_base=base_url
-        )
+        # Initialize LLM using Factory
+        print(f"Initializing LLM with provider: {config_manager.get('active_provider', 'deepseek')}...")
+        try:
+            self.llm = LLMFactory.create_langchain_llm(config_manager)
+        except Exception as e:
+            print(f"Error initializing LLM: {e}")
+            self.llm = None
 
     def retrieve_context(self, query: str, k: int = 8, quality_mode: bool = False) -> List[str]:
         """

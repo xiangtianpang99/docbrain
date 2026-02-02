@@ -1,5 +1,7 @@
 import os
-from crewai import Agent, Task, Crew, Process, LLM
+from crewai import Agent, Task, Crew, Process
+from src.llm_provider import LLMFactory
+from src.config_manager import config_manager
 from crewai.tools import tool
 
 class DocBrainCrew:
@@ -9,15 +11,12 @@ class DocBrainCrew:
         """
         self.query_engine = query_engine
         
-        # Initialize LLM using the same credentials as the main app
-        api_key = os.getenv("DEEPSEEK_API_KEY")
-        base_url = "https://api.deepseek.com"
-        
-        self.llm = LLM(
-            model="openai/deepseek-chat",
-            base_url=base_url,
-            api_key=api_key
-        )
+        # Initialize LLM using Factory
+        try:
+             self.llm = LLMFactory.create_crew_llm(config_manager)
+        except Exception as e:
+             print(f"Error initializing Crew LLM: {e}")
+             self.llm = None
 
     def run_crew(self, query: str) -> str:
         """
