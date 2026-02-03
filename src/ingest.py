@@ -26,6 +26,14 @@ class IngestionEngine:
             persist_directory=self.persist_directory,
             embedding_function=self.embedding_model
         )
+        self.busy_jobs = 0
+
+    def start_job(self):
+        self.busy_jobs += 1
+
+    def end_job(self):
+        if self.busy_jobs > 0:
+             self.busy_jobs -= 1
 
     def parse_file(self, file_path: str) -> List[Document]:
         """
@@ -121,58 +129,67 @@ class IngestionEngine:
         Ingest a single file: Delete old vectors -> Parse -> Split -> Add new vectors.
         additional_duration: seconds to add to the existing file duration.
         """
-        abs_path = os.path.abspath(file_path)
-        print(f"Processing file: {abs_path}")
-        
-        # 1. Fetch existing duration if any
-        existing_duration = 0
+        self.start_job()
         try:
-            results = self.vector_store._collection.get(where={"source": abs_path})
-            if results and results.get("metadatas"):
-                # All chunks for one file should have the same duration
-                existing_duration = results["metadatas"][0].get("duration", 0)
-        except Exception:
-            pass
+            abs_path = os.path.abspath(file_path)
+            print(f"Processing file: {abs_path}")
+            
+            # 1. Fetch existing duration if any
+            existing_duration = 0
+            try:
+                results = self.vector_store._collection.get(where={"source": abs_path})
+                if results and results.get("metadatas"):
+                    # All chunks for one file should have the same duration
+                    existing_duration = results["metadatas"][0].get("duration", 0)
+            except Exception:
+                pass
 
-        total_duration = int(existing_duration + additional_duration)
+            total_duration = int(existing_duration + additional_duration)
 
-        # 2. Remove existing vectors for this file to avoid duplicates
-        try:
-            self.vector_store._collection.delete(where={"source": abs_path})
-            # Clean up potential legacy paths
-            rel_path = os.path.relpath(abs_path)
-            if rel_path != abs_path:
-                 self.vector_store._collection.delete(where={"source": rel_path})
-        except Exception:
-            pass
+            # 2. Remove existing vectors for this file to avoid duplicates
+            try:
+                self.vector_store._collection.delete(where={"source": abs_path})
+                # Clean up potential legacy paths
+                rel_path = os.path.relpath(abs_path)
+                if rel_path != abs_path:
+                     self.vector_store._collection.delete(where={"source": rel_path})
+            except Exception:
+                pass
 
-        # 3. Parse
-        documents = self.parse_file(abs_path)
-        if not documents:
-            return
+            # 3. Parse
+            documents = self.parse_file(abs_path)
+            if not documents:
+                return
 
-        # Inject total duration into metadata
-        for doc in documents:
-            doc.metadata["duration"] = total_duration
+            # Inject total duration into metadata
+            for doc in documents:
+                doc.metadata["duration"] = total_duration
 
-        # 4. Split
-        chunks = self.split_documents(documents)
-        
-        # 5. Add
-        if chunks:
-            self.vector_store.add_documents(chunks)
-            print(f"Indexed {len(chunks)} chunks. Total duration: {total_duration}s")
+            # 4. Split
+            chunks = self.split_documents(documents)
+            
+            # 5. Add
+            if chunks:
+                self.vector_store.add_documents(chunks)
+                self.vector_store.persist()
+                print(f"Indexed {len(chunks)} chunks. Total duration: {total_duration}s")
+        finally:
+            self.end_job()
         
     def remove_document(self, file_path: str):
         """
         Remove vectors associated with a file.
         """
+        self.start_job()
         try:
             file_path = os.path.abspath(file_path)
             print(f"Removing documents for: {file_path}")
             self.vector_store._collection.delete(where={"source": file_path})
+            self.vector_store.persist()
         except Exception as e:
             print(f"Error removing {file_path}: {e}")
+        finally:
+            self.end_job()
 
     def remove_documents_by_root(self, root_path: str):
         """
@@ -180,6 +197,7 @@ class IngestionEngine:
         Since Chroma doesn't support 'startswith' in delete queries comfortably,
         we fetch all metadata, filter in Python, and delete by ID.
         """
+        self.start_job()
         try:
             root_path = os.path.abspath(root_path)
             print(f"Cleaning up documents from root: {root_path}")
@@ -209,58 +227,67 @@ class IngestionEngine:
             if ids_to_delete:
                 print(f"Found {len(ids_to_delete)} chunks to remove.")
                 self.vector_store._collection.delete(ids=ids_to_delete)
+                self.vector_store.persist()
                 print("Cleanup complete.")
             else:
                 print("No documents found for this root.")
 
         except Exception as e:
             print(f"Error cleaning root {root_path}: {e}")
+        finally:
+            self.end_job()
 
     def ingest_webpage(self, url: str, title: str, content: str, additional_duration: int = 0):
         """
         Ingest content from a webpage.
         additional_duration: seconds spent on this page to add to total.
         """
-        print(f"Ingesting webpage: {title} ({url})")
-        
-        # 1. Fetch existing duration if any
-        existing_duration = 0
+        self.start_job()
         try:
-            results = self.vector_store._collection.get(where={"source": url})
-            if results and results.get("metadatas"):
-                existing_duration = results["metadatas"][0].get("duration", 0)
-        except Exception:
-            pass
-
-        total_duration = int(existing_duration + additional_duration)
-
-        # 2. Deduplication: Remove old entries for this URL
-        try:
-            self.vector_store._collection.delete(where={"source": url})
-        except Exception:
-            pass
+            print(f"Ingesting webpage: {title} ({url})")
             
-        # 3. Prepare metadata
-        import time
-        metadata = {
-            "source": url,
-            "title": title,
-            "type": "webpage",
-            "extension": ".html",
-            "duration": total_duration,
-            "mtime": time.time()
-        }
-        
-        # 4. Create document and split
-        doc = Document(page_content=content, metadata=metadata)
-        chunks = self.split_documents([doc])
-        
-        # 5. Add to store
-        if chunks:
-            self.vector_store.add_documents(chunks)
-            print(f"Webpage indexed: {len(chunks)} chunks. Total duration: {total_duration}s")
-            return len(chunks)
-        return 0
+            # 1. Fetch existing duration if any
+            existing_duration = 0
+            try:
+                results = self.vector_store._collection.get(where={"source": url})
+                if results and results.get("metadatas"):
+                    existing_duration = results["metadatas"][0].get("duration", 0)
+            except Exception:
+                pass
+
+            total_duration = int(existing_duration + additional_duration)
+
+            # 2. Deduplication: Remove old entry for this URL
+            try:
+                self.vector_store._collection.delete(where={"source": url})
+                self.vector_store.persist()
+            except Exception:
+                pass
+                
+            # 3. Prepare metadata
+            import time
+            metadata = {
+                "source": url,
+                "title": title,
+                "type": "webpage",
+                "extension": ".html",
+                "duration": total_duration,
+                "mtime": time.time()
+            }
+            
+            # 4. Create document and split
+            doc = Document(page_content=content, metadata=metadata)
+            chunks = self.split_documents([doc])
+            
+            # 5. Add to store
+            if chunks:
+                self.vector_store.add_documents(chunks)
+                self.vector_store.persist()
+                print(f"Webpage indexed: {len(chunks)} chunks. Total duration: {total_duration}s")
+                return len(chunks)
+            return 0
+        finally:
+            self.end_job()
 
     def ingest_directory(self, source_dir: str):
         """

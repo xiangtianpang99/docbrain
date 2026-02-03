@@ -8,24 +8,27 @@ from src.llm_provider import LLMFactory
 from src.config_manager import config_manager
 
 class QueryEngine:
-    def __init__(self, persist_directory: str = None, model_name: str = "all-MiniLM-L6-v2"):
+    def __init__(self, persist_directory: str = None, model_name: str = "all-MiniLM-L6-v2", vector_store=None):
         """
         Initialize the Query Engine.
         """
-        if persist_directory is None:
+        if persist_directory is None and vector_store is None:
             # Resolve to absolute path relative to project root
             root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
             persist_directory = os.path.join(root_dir, "chroma_db")
 
-        self.persist_directory = persist_directory
         print(f"Loading embedding model: {model_name}...")
         self.embedding_model = HuggingFaceEmbeddings(model_name=model_name)
         
-        print(f"Loading Vector Store from {persist_directory}...")
-        self.vector_store = Chroma(
-            persist_directory=persist_directory, 
-            embedding_function=self.embedding_model
-        )
+        if vector_store:
+            print("Using shared Vector Store instance...")
+            self.vector_store = vector_store
+        else:
+            print(f"Loading Vector Store from {persist_directory}...")
+            self.vector_store = Chroma(
+                persist_directory=persist_directory, 
+                embedding_function=self.embedding_model
+            )
         
         # Initialize LLM using Factory
         print(f"Initializing LLM with provider: {config_manager.get('active_provider', 'deepseek')}...")

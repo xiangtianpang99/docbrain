@@ -30,7 +30,8 @@ async def lifespan(app: FastAPI):
     print("Loading AI Engines...")
     global engine, query_engine
     engine = IngestionEngine()
-    query_engine = QueryEngine()
+    # Share the same vector store instance to ensure consistency between ingestion and query
+    query_engine = QueryEngine(vector_store=engine.vector_store)
     
     # Initialize background services based on config
     print("Initializing Background Services...")
@@ -247,6 +248,25 @@ async def trigger_indexing(background_tasks: BackgroundTasks, authorized: bool =
     watch_paths = config_manager.get("watch_paths", [])
     background_tasks.add_task(scheduler.run_ingestion, watch_paths)
     return {"status": "success", "message": "Indexing started in background."}
+
+@app.get("/system/status")
+def get_system_status(authorized: bool = Depends(verify_token)):
+    """
+    Get current background service status.
+    Useful for frontend to know when indexing is complete.
+    """
+    # Check monitor's ingestor status
+    monitor_jobs = global_monitor.ingestor.busy_jobs if global_monitor and global_monitor.ingestor else 0
+    # Also check local API engine (e.g. for webpage ingest)
+    api_jobs = engine.busy_jobs if engine else 0
+    
+    total_jobs = monitor_jobs + api_jobs
+    
+    return {
+        "status": "success",
+        "is_indexing": total_jobs > 0,
+        "pending_jobs": total_jobs
+    }
 
 @app.post("/ingest/webpage")
 async def ingest_webpage(payload: WebpagePayload, authorized: bool = Depends(verify_token)):

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { Send, FileText, Database, Settings, Loader2, Globe, File, FileSpreadsheet } from 'lucide-react'
+import { Send, FileText, Database, Settings, Loader2, Globe, File, FileSpreadsheet, RotateCw, Search, ChevronDown, ChevronRight, Folder, FileCode, FileImage, Presentation, FileQuestion } from 'lucide-react'
 import axios from 'axios'
 import clsx from 'clsx'
 import FilePreview from './FilePreview'
@@ -16,10 +16,14 @@ function App() {
   const [docsLoading, setDocsLoading] = useState(true)
   const [previewFile, setPreviewFile] = useState(null)
   const [showSettings, setShowSettings] = useState(false)
+  const [searchQuery, setSearchQuery] = useState('') // New search state
 
   // Startup Check State
   const [isBackendReady, setIsBackendReady] = useState(false)
   const [connectionRetries, setConnectionRetries] = useState(0)
+  const [config, setConfig] = useState(null) // Store full config
+  const [expandedGroups, setExpandedGroups] = useState({}) // Track folder expansion
+  const [isRefreshing, setIsRefreshing] = useState(false) // For refresh animation
 
   const messagesEndRef = useRef(null)
 
@@ -55,18 +59,150 @@ function App() {
 
   const fetchDocuments = async () => {
     try {
-      setDocsLoading(true)
-      const response = await axios.get(`${API_URL}/documents`, {
+      if (documents.length === 0) setDocsLoading(true)
+      setIsRefreshing(true)
+
+      // 1. Minimum animation time of 1s
+      const minTimePromise = new Promise(resolve => setTimeout(resolve, 1000))
+
+      // 2. Smart Sync: Poll until backend is idle
+      let idle = false
+      let attempts = 0
+      while (!idle && attempts < 20) { // Max 10s wait
+        try {
+          const statusRes = await axios.get(`${API_URL}/system/status`, {
+            headers: { 'Authorization': `Bearer ${API_KEY}` }
+          })
+          if (statusRes.data && !statusRes.data.is_indexing) {
+            idle = true
+          } else {
+            console.log(`Backend busy (jobs: ${statusRes.data?.pending_jobs}), waiting...`)
+            await new Promise(r => setTimeout(r, 500))
+            attempts++
+          }
+        } catch (e) {
+          console.warn("Failed to check status, proceeding anyway", e)
+          idle = true
+        }
+      }
+
+      // 3. Fetch Data
+      const docsPromise = axios.get(`${API_URL}/documents`, {
         headers: { 'Authorization': `Bearer ${API_KEY}` }
       })
-      if (response.data && response.data.status === 'success') {
-        setDocuments(response.data.documents)
+
+      const configPromise = axios.get(`${API_URL}/config`, {
+        headers: { 'Authorization': `Bearer ${API_KEY}` }
+      })
+
+      const [_, docsRes, configRes] = await Promise.all([minTimePromise, docsPromise, configPromise])
+
+      if (docsRes.data && docsRes.data.status === 'success') {
+        setDocuments(docsRes.data.documents)
+      }
+      if (configRes.data) {
+        setConfig(configRes.data)
+        if (Object.keys(expandedGroups).length === 0 && configRes.data.watch_paths) {
+          const initialGroups = {}
+          configRes.data.watch_paths.forEach(p => initialGroups[p] = true)
+          initialGroups['Others'] = true
+          setExpandedGroups(initialGroups)
+        }
       }
     } catch (error) {
-      console.error("Failed to fetch documents:", error)
+      console.error("Failed to fetch data:", error)
     } finally {
       setDocsLoading(false)
+      setIsRefreshing(false)
     }
+  }
+
+  // Helper for File Icons
+  const getFileIcon = (filename, source) => {
+    const ext = filename.split('.').pop().toLowerCase()
+
+    // Icon mapping
+    const iconMap = {
+      'pdf': { icon: FileText, color: 'text-red-400' },
+      'doc': { icon: FileText, color: 'text-blue-400' },
+      'docx': { icon: FileText, color: 'text-blue-400' },
+      'xls': { icon: FileSpreadsheet, color: 'text-green-400' },
+      'xlsx': { icon: FileSpreadsheet, color: 'text-green-400' },
+      'ppt': { icon: Presentation, color: 'text-orange-400' },
+      'pptx': { icon: Presentation, color: 'text-orange-400' },
+      'md': { icon: FileCode, color: 'text-purple-400' },
+      'txt': { icon: FileText, color: 'text-gray-400' },
+      'json': { icon: FileCode, color: 'text-yellow-400' },
+      'js': { icon: FileCode, color: 'text-yellow-400' },
+      'py': { icon: FileCode, color: 'text-blue-300' },
+      'html': { icon: Globe, color: 'text-cyan-400' },
+      'jpg': { icon: FileImage, color: 'text-pink-400' },
+      'png': { icon: FileImage, color: 'text-pink-400' },
+      'jpeg': { icon: FileImage, color: 'text-pink-400' }
+    }
+
+    // Check for webpage type logic from backend
+    if (source && (source.startsWith('http') || source.startsWith('https'))) {
+      return <Globe size={16} className="text-cyan-400 group-hover:text-white transition-colors" />
+    }
+
+    const conf = iconMap[ext] || { icon: FileQuestion, color: 'text-gray-500' }
+    const IconComp = conf.icon
+
+    return <IconComp size={16} className={`${conf.color} group-hover:text-white transition-colors`} />
+  }
+
+  // Helper to group documents by Watch Path
+  const getGroupedDocuments = () => {
+    if (!config || !documents) return {}
+
+    const groups = {}
+    const watchPaths = config.watch_paths || []
+
+    // Initialize groups
+    watchPaths.forEach(path => {
+      groups[path] = []
+    })
+    groups['Others'] = [] // For files not in any watch path (e.g. webpage) or legacy
+
+    // Sort documents into groups
+    documents.forEach(doc => {
+      // Filter by search query first
+      const fname = doc.title || doc.source.split(/[\\/]/).pop()
+      if (searchQuery && !fname.toLowerCase().includes(searchQuery.toLowerCase())) {
+        return
+      }
+
+      let matched = false
+      // Try to match source to a watch path
+      // We look for the longest matching prefix effectively
+      // But simple iteration is usually fine for few paths
+      for (const wp of watchPaths) {
+        // Simple string check, ideally should use proper path logic but this works for simple cases
+        // Check if doc source starts with the watch path (normalized slashes a bit)
+        const normalizedSource = doc.source.replace(/\\/g, '/')
+        const normalizedWP = wp.replace(/\\/g, '/')
+
+        if (normalizedSource.startsWith(normalizedWP) || normalizedSource.includes(normalizedWP)) {
+          groups[wp].push(doc)
+          matched = true
+          break
+        }
+      }
+
+      if (!matched) {
+        groups['Others'].push(doc)
+      }
+    })
+
+    return groups
+  }
+
+  const toggleGroup = (groupName) => {
+    setExpandedGroups(prev => ({
+      ...prev,
+      [groupName]: !prev[groupName]
+    }))
   }
 
   const handleSend = async () => {
@@ -107,11 +243,11 @@ function App() {
     }
   }
 
+  // No changes here
   const getIconForType = (type, path) => {
-    if (type === 'webpage') return <Globe size={16} className="text-gray-500 group-hover:text-blue-400 transition-colors" />
-    if (path.endsWith('.pdf')) return <FileText size={16} className="text-gray-500 group-hover:text-red-400 transition-colors" />
-    if (path.endsWith('.xlsx') || path.endsWith('.xls')) return <FileSpreadsheet size={16} className="text-gray-500 group-hover:text-green-400 transition-colors" />
-    return <File size={16} className="text-gray-500 group-hover:text-gray-300 transition-colors" />
+    // Legacy wrapper if needed, or replace usages
+    const filename = path.split(/[\\/]/).pop()
+    return getFileIcon(filename, path)
   }
 
   // Loading Screen (Splash)
@@ -169,30 +305,84 @@ function App() {
         <div className="flex-1 overflow-y-auto p-4 space-y-6">
           <div>
             <div className="text-xs font-semibold text-red-500/80 uppercase mb-3 px-2 tracking-wider flex justify-between items-center">
-              <span>Knowledge Base</span>
-              <span className="text-[10px] bg-red-900/30 text-red-400 px-1.5 py-0.5 rounded border border-red-500/10">{documents.length}</span>
+              <div className="flex items-center gap-2">
+                <span>Knowledge Base</span>
+                <span className="text-[10px] bg-red-900/30 text-red-400 px-1.5 py-0.5 rounded border border-red-500/10">{documents.length}</span>
+              </div>
+              <button
+                onClick={fetchDocuments}
+                className="text-gray-500 hover:text-white transition p-1 hover:bg-white/10 rounded"
+                title="Refresh File List"
+                disabled={isRefreshing}
+              >
+                <RotateCw size={14} className={clsx(isRefreshing && "animate-spin")} />
+              </button>
             </div>
-            <div className="space-y-1">
+
+            {/* Search Input */}
+            <div className="px-2 mb-3">
+              <div className="relative group">
+                <Search size={14} className="absolute left-2.5 top-2.5 text-gray-500 group-focus-within:text-red-400 transition-colors" />
+                <input
+                  type="text"
+                  placeholder="Search files..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-full bg-black/20 border border-white/5 rounded-lg pl-8 pr-3 py-2 text-xs text-gray-300 focus:outline-none focus:border-red-500/30 transition-all placeholder:text-gray-600"
+                />
+              </div>
+            </div>
+
+            <div className="space-y-4">
               {docsLoading ? (
                 <div className="flex justify-center py-4">
                   <Loader2 className="animate-spin text-red-500/50" size={20} />
                 </div>
               ) : documents.length === 0 ? (
                 <div className="text-xs text-center text-gray-600 py-4 italic">
-                  No documents found.<br />Add files to ./data
+                  No documents found.<br />Add files to watched folders.
                 </div>
               ) : (
-                documents.map((doc, idx) => (
-                  <div
-                    key={idx}
-                    onClick={() => setPreviewFile(doc)}
-                    className="group flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-white/5 cursor-pointer text-gray-400 hover:text-white transition border border-transparent hover:border-red-500/10"
-                    title={doc.source}
-                  >
-                    {getIconForType(doc.type, doc.source)}
-                    <span className="text-sm truncate">{doc.title || doc.source.split(/[\\/]/).pop()}</span>
-                  </div>
-                ))
+                /* Grouped View */
+                Object.entries(getGroupedDocuments()).map(([groupName, groupDocs]) => {
+                  if (groupDocs.length === 0) return null
+                  // Extract folder name for display
+                  const displayName = groupName === 'Others' ? 'Uncategorized' : groupName.split(/[\\/]/).filter(Boolean).pop() || groupName
+
+                  return (
+                    <div key={groupName} className="space-y-1">
+                      {/* Group Header */}
+                      <div
+                        onClick={() => toggleGroup(groupName)}
+                        className="flex items-center gap-2 px-2 py-1 text-xs font-medium text-gray-500 hover:text-gray-300 cursor-pointer select-none"
+                      >
+                        {expandedGroups[groupName] ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+                        <Folder size={12} className="text-red-500/60" />
+                        <span className="truncate" title={groupName}>{displayName}</span>
+                        <span className="ml-auto text-[10px] bg-white/5 px-1 rounded">{groupDocs.length}</span>
+                      </div>
+
+                      {/* Group Items */}
+                      {expandedGroups[groupName] && (
+                        <div className="pl-3 space-y-0.5 border-l border-white/5 ml-2.5">
+                          {groupDocs.map((doc, idx) => (
+                            <div
+                              key={`${groupName}-${idx}`}
+                              onClick={() => setPreviewFile(doc)}
+                              className="group flex items-center gap-2 px-2 py-1.5 rounded hover:bg-white/5 cursor-pointer text-gray-400 hover:text-white transition"
+                              title={doc.source}
+                            >
+                              <div className="shrink-0 scale-75 opacity-70 group-hover:opacity-100 transition">
+                                {getIconForType(doc.type, doc.source)}
+                              </div>
+                              <span className="text-sm truncate opacity-80 group-hover:opacity-100">{doc.title || doc.source.split(/[\\/]/).pop()}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )
+                })
               )}
             </div>
           </div>
