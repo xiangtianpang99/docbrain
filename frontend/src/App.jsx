@@ -24,6 +24,8 @@ function App() {
   const [config, setConfig] = useState(null) // Store full config
   const [expandedGroups, setExpandedGroups] = useState({}) // Track folder expansion
   const [isRefreshing, setIsRefreshing] = useState(false) // For refresh animation
+  const [wasIndexing, setWasIndexing] = useState(false) // Track previous indexing state for trigger
+  const [lastFetchTime, setLastFetchTime] = useState(0) // Timestamp of last successful fetch
 
   const messagesEndRef = useRef(null)
 
@@ -46,45 +48,55 @@ function App() {
     checkHealth()
   }, [])
 
-  // 2. Fetch Data (Only after backend is ready)
+  // 2. Initial Fetch
+  useEffect(() => {
+    if (isBackendReady) {
+      fetchDocuments()
+    }
+  }, [isBackendReady])
+
+  // 2. Smart Polling (Timestamp Based)
+  // 通过比较服务器的最后更新时间与本地的最后获取时间，来决定是否刷新。
+  // 这完美解决了“瞬时任务”在两次轮询间隙完成导致状态捕捉不到的问题。
   useEffect(() => {
     if (!isBackendReady) return
 
-    fetchDocuments()
+    const interval = setInterval(async () => {
+      try {
+        const res = await axios.get(`${API_URL}/system/status`, {
+          headers: { 'Authorization': `Bearer ${API_KEY}` }
+        })
 
-    // Setup interval to refresh status
-    const interval = setInterval(fetchDocuments, 30000)
+        const { is_indexing, last_update } = res.data
+
+        // 1. 更新UI加载状态
+        if (is_indexing) {
+          setIsRefreshing(true)
+        } else {
+          setIsRefreshing(false)
+        }
+
+        // 2. 核心同步逻辑: 时间戳比对
+        // 如果服务器有了更新 (last_update > lastFetchTime)，且当前空闲，则拉取新数据
+        // 注意：加一个由 isRefreshing 导致的缓冲，避免在变为 idle 的瞬间重复触发
+        if (!is_indexing && last_update > lastFetchTime) {
+          console.log(`New data detected! Server: ${last_update} > Local: ${lastFetchTime}`)
+          fetchDocuments()
+        }
+
+      } catch (e) {
+        // Silent fail
+      }
+    }, 2000)
+
     return () => clearInterval(interval)
-  }, [isBackendReady])
+  }, [isBackendReady, lastFetchTime])
+
 
   const fetchDocuments = async () => {
     try {
       if (documents.length === 0) setDocsLoading(true)
       setIsRefreshing(true)
-
-      // 1. Minimum animation time of 1s
-      const minTimePromise = new Promise(resolve => setTimeout(resolve, 1000))
-
-      // 2. Smart Sync: Poll until backend is idle
-      let idle = false
-      let attempts = 0
-      while (!idle && attempts < 20) { // Max 10s wait
-        try {
-          const statusRes = await axios.get(`${API_URL}/system/status`, {
-            headers: { 'Authorization': `Bearer ${API_KEY}` }
-          })
-          if (statusRes.data && !statusRes.data.is_indexing) {
-            idle = true
-          } else {
-            console.log(`Backend busy (jobs: ${statusRes.data?.pending_jobs}), waiting...`)
-            await new Promise(r => setTimeout(r, 500))
-            attempts++
-          }
-        } catch (e) {
-          console.warn("Failed to check status, proceeding anyway", e)
-          idle = true
-        }
-      }
 
       // 3. Fetch Data
       const docsPromise = axios.get(`${API_URL}/documents`, {
@@ -95,19 +107,17 @@ function App() {
         headers: { 'Authorization': `Bearer ${API_KEY}` }
       })
 
-      const [_, docsRes, configRes] = await Promise.all([minTimePromise, docsPromise, configPromise])
+      const [docsRes, configRes] = await Promise.all([docsPromise, configPromise])
 
       if (docsRes.data && docsRes.data.status === 'success') {
         setDocuments(docsRes.data.documents)
+        // Update local fetch timestamp
+        setLastFetchTime(Date.now() / 1000)
       }
       if (configRes.data) {
         setConfig(configRes.data)
-        if (Object.keys(expandedGroups).length === 0 && configRes.data.watch_paths) {
-          const initialGroups = {}
-          configRes.data.watch_paths.forEach(p => initialGroups[p] = true)
-          initialGroups['Others'] = true
-          setExpandedGroups(initialGroups)
-        }
+        // Default to collapsed for a cleaner look
+        // logic removed
       }
     } catch (error) {
       console.error("Failed to fetch data:", error)
@@ -143,13 +153,13 @@ function App() {
 
     // Check for webpage type logic from backend
     if (source && (source.startsWith('http') || source.startsWith('https'))) {
-      return <Globe size={16} className="text-cyan-400 group-hover:text-white transition-colors" />
+      return <Globe size={16} className="text-cyan-400 group-hover:brightness-125 transition-all" />
     }
 
     const conf = iconMap[ext] || { icon: FileQuestion, color: 'text-gray-500' }
     const IconComp = conf.icon
 
-    return <IconComp size={16} className={`${conf.color} group-hover:text-white transition-colors`} />
+    return <IconComp size={16} className={`${conf.color} group-hover:brightness-125 transition-all`} />
   }
 
   // Helper to group documents by Watch Path
@@ -333,7 +343,7 @@ function App() {
               </div>
             </div>
 
-            <div className="space-y-4">
+            <div className={clsx("space-y-4 transition-opacity duration-500", isRefreshing ? "opacity-60 pointer-events-none" : "opacity-100")}>
               {docsLoading ? (
                 <div className="flex justify-center py-4">
                   <Loader2 className="animate-spin text-red-500/50" size={20} />
@@ -354,17 +364,19 @@ function App() {
                       {/* Group Header */}
                       <div
                         onClick={() => toggleGroup(groupName)}
-                        className="flex items-center gap-2 px-2 py-1 text-xs font-medium text-gray-500 hover:text-gray-300 cursor-pointer select-none"
+                        className="flex items-center gap-2 px-2 py-1 text-xs font-medium text-gray-500 hover:text-gray-300 cursor-pointer select-none transition-colors"
                       >
-                        {expandedGroups[groupName] ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+                        <div className={clsx("transition-transform duration-200", expandedGroups[groupName] ? "rotate-90" : "")}>
+                          <ChevronRight size={12} />
+                        </div>
                         <Folder size={12} className="text-red-500/60" />
                         <span className="truncate" title={groupName}>{displayName}</span>
                         <span className="ml-auto text-[10px] bg-white/5 px-1 rounded">{groupDocs.length}</span>
                       </div>
 
-                      {/* Group Items */}
-                      {expandedGroups[groupName] && (
-                        <div className="pl-3 space-y-0.5 border-l border-white/5 ml-2.5">
+                      {/* Group Items - Animated Expansion */}
+                      <div className={clsx("overflow-hidden transition-all duration-300 ease-in-out", expandedGroups[groupName] ? "max-h-[500px] opacity-100" : "max-h-0 opacity-0")}>
+                        <div className="pl-3 space-y-0.5 border-l border-white/5 ml-2.5 py-1">
                           {groupDocs.map((doc, idx) => (
                             <div
                               key={`${groupName}-${idx}`}
@@ -379,7 +391,7 @@ function App() {
                             </div>
                           ))}
                         </div>
-                      )}
+                      </div>
                     </div>
                   )
                 })

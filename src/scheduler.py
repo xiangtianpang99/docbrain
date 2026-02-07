@@ -30,20 +30,20 @@ class DocBrainScheduler:
     async def run_loop(self):
         while self.running:
             try:
-                # Check if scheduler is enabled in config
+                # 检查配置中是否启用了调度器
                 if not config_manager.get("enable_scheduler", True):
-                    await asyncio.sleep(60) # check again in 1 min
+                    await asyncio.sleep(60) # 1分钟后再次检查
                     continue
                 
                 interval_minutes = config_manager.get("schedule_interval_minutes", 60)
                 watch_paths = config_manager.get("watch_paths", ["./data"])
                 
-                print(f"Scheduler: Starting scheduled ingestion for {watch_paths}...")
+                print(f"调度器: 开始对 {watch_paths} 进行计划索引...")
                 
-                # Run ingestion in a separate thread to not block the event loop
+                # 在单独的线程中运行索引，以免阻塞事件循环
                 await asyncio.to_thread(self.run_ingestion, watch_paths)
                 
-                print(f"Scheduler: Ingestion complete. Next run in {interval_minutes} minutes.")
+                print(f"调度器: 索引完成。下次运行将在 {interval_minutes} 分钟后。")
                 
                 # Wait for the next interval
                 await asyncio.sleep(interval_minutes * 60)
@@ -51,8 +51,8 @@ class DocBrainScheduler:
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                print(f"Scheduler Error: {e}")
-                await asyncio.sleep(60) # retry in 1 min if error
+                print(f"调度器错误: {e}")
+                await asyncio.sleep(60) # 出错后1分钟重试
 
     def run_ingestion(self, paths):
         for path in paths:

@@ -7,10 +7,10 @@ from src.ingest import IngestionEngine
 class DocHandler(FileSystemEventHandler):
     def __init__(self, ingestor: IngestionEngine):
         self.ingestor = ingestor
-        # Track last modification time to estimate effort
+        # 记录最后修改时间以预估工作量
         # { filepath: last_event_time }
         self.file_activity = {}
-        self.session_threshold = 900  # 15 minutes gap starts a new session
+        self.session_threshold = 900  # 15分钟间隔视为新会话
 
     def process(self, event):
         if event.is_directory:
@@ -20,7 +20,7 @@ class DocHandler(FileSystemEventHandler):
         # Ignore hidden files or temp files
         filename = os.path.basename(filepath)
         
-        # New: Ignore specific system/dev directories in path
+        # 新增: 忽略路径中的特定系统/开发目录
         ignore_dirs = {
             "node_modules", ".git", ".venv", ".vscode", "__pycache__", 
             "System Volume Information", "$RECYCLE.BIN", ".idea"
@@ -51,11 +51,11 @@ class DocHandler(FileSystemEventHandler):
              if filepath in self.file_activity:
                  del self.file_activity[filepath]
         elif event.event_type in ['created', 'modified']:
-             # Small delay to ensure file write is complete
+             # 小延迟以确保文件写入完成
              time.sleep(1)
              self.ingestor.process_file(filepath, additional_duration=additional_duration)
         elif event.event_type == 'moved':
-             # Handle rename: delete old, add new
+             # 处理重命名: 删除旧的，添加新的
              self.ingestor.remove_document(event.src_path)
              if not event.dest_path.split("/")[-1].startswith('.'):
                  time.sleep(1)
@@ -83,10 +83,10 @@ class GlobalMonitor:
         self.handler = DocHandler(self.ingestor)
 
     def start(self):
-        self.stop() # Ensure previous observer is stopped
+        self.stop() # 确保停止先前的观察者
         
         if not config_manager.get("enable_watchdog", True):
-             print("Real-time monitoring is disabled in config.")
+             print("配置中已禁用实时监控。")
              return
 
         self.observer = Observer()

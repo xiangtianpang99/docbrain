@@ -7,7 +7,17 @@ from typing import Optional, List, Dict, Any
 import os
 import sys
 from dotenv import load_dotenv
+from dotenv import load_dotenv
 from markdownify import markdownify as md
+import logging
+
+# 定义日志过滤器，屏蔽 /system/status 的日志
+class EndpointFilter(logging.Filter):
+    def filter(self, record: logging.LogRecord) -> bool:
+        return record.getMessage().find("/system/status") == -1
+
+# 将过滤器应用到 uvicorn 的访问日志
+logging.getLogger("uvicorn.access").addFilter(EndpointFilter())
 
 # Add src to path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -20,31 +30,31 @@ from src.monitor import global_monitor, start_watching
 
 load_dotenv()
 
-# Global Engines (Initialized in lifespan)
+# 全局引擎 (在 lifespan 中初始化)
 engine = None
 query_engine = None
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Load engines on startup
-    print("Loading AI Engines...")
+    # 启动时加载引擎
+    print("正在加载 AI 引擎...")
     global engine, query_engine
     engine = IngestionEngine()
-    # Share the same vector store instance to ensure consistency between ingestion and query
+    # 共享向量存储实例以确保一致性
     query_engine = QueryEngine(vector_store=engine.vector_store)
     
-    # Initialize background services based on config
-    print("Initializing Background Services...")
-    global_monitor.start() # Starts watching paths from config
-    await scheduler.start() # Starts scheduler loop
+    # 根据配置初始化后台服务
+    print("正在初始化后台服务...")
+    global_monitor.start() # 启动监控
+    await scheduler.start() # 启动调度器
     
-    print("AI Engines & Services Loaded successfully.")
+    print("AI 引擎及服务加载成功。")
     yield
-    # Clean up
+    # 清理
     await scheduler.stop()
     global_monitor.stop()
 
-app = FastAPI(title="docBrain API", description="API for browser extension integration", lifespan=lifespan)
+app = FastAPI(title="docBrain API", description="浏览器扩展集成 API", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -54,8 +64,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Security: Simple API Key
-# Now we prefer the one from config, fallback to env or default
+# 安全: 简单的 API Key
+# 优先使用配置中的，回退到环境变量或默认值
 def get_api_key():
     return config_manager.get("api_key") or os.getenv("API_KEY", "docbrain_default_key")
 
@@ -111,41 +121,43 @@ def set_config(payload: ConfigPayload, background_tasks: BackgroundTasks, author
     if payload.api_key is not None:
         update_data["api_key"] = payload.api_key
     
-    # Handle LLM configurations
+    # 处理 LLM 配置
     if payload.active_provider is not None:
         update_data["active_provider"] = payload.active_provider
     if payload.llm_providers is not None:
         update_data["llm_providers"] = payload.llm_providers
         
-    # Legacy support (optional, can be removed if we want to force migration)
+    # 兼容旧版本 (可选)
     if payload.deepseek_api_key is not None:
         update_data["deepseek_api_key"] = payload.deepseek_api_key
-        # We don't set env var here anymore, rely on provider config
+        # 不再设置环境变量，依赖 provider 配置
         
     if update_data:
         config_manager.update(update_data)
         
-        # Handle Path Changes
+        # 处理路径变更
         if "watch_paths" in update_data:
             new_paths = set(update_data["watch_paths"])
             
-            # 1. Handle Removed Paths -> Clean up DB
+            # 1. 处理移除的路径 -> 清理 DB
             removed_paths = old_paths - new_paths
             for path in removed_paths:
-                print(f"Config: Path removed {path}. Cleaning up documents...")
+                print(f"配置: 路径已移除 {path}. 清理文档中...")
                 engine.remove_documents_by_root(path)
             
-            # 2. Handle Added Paths -> Trigger Indexing
+            # 2. 处理新增的路径 -> 触发索引
             added_paths = new_paths - old_paths
             if added_paths:
-                print(f"Config: New paths added {added_paths}. Triggering ingestion...")
+                print(f"配置: 新增路径 {added_paths}. 触发索引...")
                 background_tasks.add_task(scheduler.run_ingestion, list(added_paths))
 
-        # Restart Monitor if needed
+        # 如果需要重启监控器
         if "watch_paths" in update_data or "enable_watchdog" in update_data:
-            print("Config updated: Restarting Monitor...")
+            print("配置已更新: 重启监控器...")
             global_monitor.start()
             
+    return {"status": "success", "message": "Configuration updated.", "config": config_manager.config}
+
     return {"status": "success", "message": "Configuration updated.", "config": config_manager.config}
 
 from src.llm_provider import LLMFactory
@@ -244,28 +256,33 @@ async def test_llm_connection(payload: TestLLMPayload, authorized: bool = Depend
 
 @app.post("/actions/index")
 async def trigger_indexing(background_tasks: BackgroundTasks, authorized: bool = Depends(verify_token)):
-    """Manually trigger immediate indexing of all watched paths."""
+    """手动触发所有监控路径的立即索引。"""
     watch_paths = config_manager.get("watch_paths", [])
     background_tasks.add_task(scheduler.run_ingestion, watch_paths)
-    return {"status": "success", "message": "Indexing started in background."}
+    return {"status": "success", "message": "已在后台开始索引。"}
 
 @app.get("/system/status")
 def get_system_status(authorized: bool = Depends(verify_token)):
     """
-    Get current background service status.
-    Useful for frontend to know when indexing is complete.
+    获取当前后台服务状态。
+    前端用于判断索引是否完成。
     """
-    # Check monitor's ingestor status
+    # 检查监控器的索引器状态
     monitor_jobs = global_monitor.ingestor.busy_jobs if global_monitor and global_monitor.ingestor else 0
-    # Also check local API engine (e.g. for webpage ingest)
+    monitor_update = global_monitor.ingestor.last_update_time if global_monitor and global_monitor.ingestor else 0
+    
+    # 同时检查本地 API 引擎 (如网页索引)
     api_jobs = engine.busy_jobs if engine else 0
+    api_update = engine.last_update_time if engine else 0
     
     total_jobs = monitor_jobs + api_jobs
+    last_update = max(monitor_update, api_update)
     
     return {
         "status": "success",
         "is_indexing": total_jobs > 0,
-        "pending_jobs": total_jobs
+        "pending_jobs": total_jobs,
+        "last_update": last_update 
     }
 
 @app.post("/ingest/webpage")

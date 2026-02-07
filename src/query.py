@@ -21,17 +21,17 @@ class QueryEngine:
         self.embedding_model = HuggingFaceEmbeddings(model_name=model_name)
         
         if vector_store:
-            print("Using shared Vector Store instance...")
+            print("正在使用共享向量存储实例...")
             self.vector_store = vector_store
         else:
-            print(f"Loading Vector Store from {persist_directory}...")
+            print(f"正在从 {persist_directory} 加载向量存储...")
             self.vector_store = Chroma(
                 persist_directory=persist_directory, 
                 embedding_function=self.embedding_model
             )
         
-        # Initialize LLM using Factory
-        print(f"Initializing LLM with provider: {config_manager.get('active_provider', 'deepseek')}...")
+        # 使用工厂初始化 LLM
+        print(f"正在初始化 LLM，提供商: {config_manager.get('active_provider', 'deepseek')}...")
         try:
             self.llm = LLMFactory.create_langchain_llm(config_manager)
         except Exception as e:
@@ -40,22 +40,22 @@ class QueryEngine:
 
     def retrieve_context(self, query: str, k: int = 8, quality_mode: bool = False) -> List[str]:
         """
-        Retrieve relevant document chunks for a query.
+        为查询检索相关的文档分块。
         """
         if not quality_mode:
-            print(f"Searching for context related to: '{query}'")
+            print(f"正在搜索相关上下文: '{query}'")
             return self.vector_store.similarity_search(query, k=k)
         
-        # Quality Mode Implementation
-        print(f"Searching in Quality Mode for: '{query}'")
+        # 质量模式实现
+        print(f"正在以质量模式搜索: '{query}'")
         priority_keywords = os.getenv("PRIORITY_KEYWORDS", "").lower().split(",")
         priority_keywords = [kw.strip() for kw in priority_keywords if kw.strip()]
         
-        # 1. Fetch a larger pool of candidates
+        # 1. 获取更大的候选池
         fetch_k = k * 3
         docs_with_scores = self.vector_store.similarity_search_with_relevance_scores(query, k=fetch_k)
         
-        # 2. Re-rank based on path keywords and recency
+        # 2. 根据路径关键字和新旧程度重新排序
         ranked_results = []
         import time
         now = time.time()
@@ -85,26 +85,26 @@ class QueryEngine:
 
     def evaluate_complexity(self, query: str) -> bool:
         """
-        Evaluate if a query is complex and requires CrewAI agents.
-        Returns True for complex queries, False for simple ones.
+        评估查询是否复杂，是否需要 CrewAI 代理。
+        复杂查询返回 True，简单查询返回 False。
         """
-        print("Evaluating query complexity...")
-        system_prompt = """You are a query complexity classifier.
-        Analyze the user's query and determine if it is 'Simple' or 'Complex'.
+        print("正在评估查询复杂度...")
+        system_prompt = """你是一个查询复杂度分类器。
+        分析用户的查询并确定它是 'Simple' (简单) 还是 'Complex' (复杂)。
         
-        'Simple' queries:
-        - Ask for a specific fact.
-        - Ask to summarize a single concept.
-        - Are direct and unambiguous.
-        - Can likely be answered by retrieving a few documents.
+        'Simple' 查询:
+        - 询问具体事实。
+        - 要求总结单个概念。
+        - 直接且无歧义。
+        - 可能通过检索少量文档即可回答。
         
-        'Complex' queries:
-        - Require multi-step reasoning.
-        - Ask to compare multiple concepts or documents.
-        - Request a comprehensive plan, report, or analysis.
-        - Implies synthesizing information from various unrelated sources.
+        'Complex' 查询:
+        - 需要多步推理。
+        - 要求比较多个概念或文档。
+        - 请求综合计划、报告或分析。
+        - 意味着需要综合来自各种不相关来源的信息。
         
-        Respond ONLY with 'Simple' or 'Complex'.
+        仅回复 'Simple' 或 'Complex'。
         """
         
         messages = [
@@ -121,26 +121,26 @@ class QueryEngine:
 
     def ask(self, query: str, quality_mode: bool = False, force_crew: bool = False, no_crew: bool = False) -> str:
         """
-        Ask a question to the LLM with retrieved context or via CrewAI.
+        向 LLM 提问，使用检索到的上下文或通过 CrewAI。
         """
-        # 1. Check complexity
+        # 1. 检查复杂度
         is_complex = not no_crew and (force_crew or self.evaluate_complexity(query))
         
         if is_complex:
             if force_crew:
-                print(">>> Forced Routing to CrewAI Agents (Testing Mode) <<<")
+                print(">>> 强制路由到 CrewAI 代理 (测试模式) <<<")
             else:
-                print(">>> Routing to CrewAI Agents (Complex Query) <<<")
+                print(">>> 路由到 CrewAI 代理 (复杂查询) <<<")
             try:
                 from src.crew_agent import DocBrainCrew
                 crew = DocBrainCrew(self)
                 return crew.run_crew(query)
             except Exception as e:
-                print(f"CrewAI failed: {e}. Falling back to standard RAG.")
+                print(f"CrewAI 失败: {e}。回退到标准 RAG。")
                 # Fallback to standard RAG if CrewAI fails
         
-        # 2. Standard RAG (Simple Query)
-        print(">>> Using Standard RAG (Simple Query) <<<")
+        # 2. 标准 RAG (简单查询)
+        print(">>> 使用标准 RAG (简单查询) <<<")
         docs = self.retrieve_context(query, quality_mode=quality_mode)
         if not docs:
             return "No relevant context found in the knowledge base."
@@ -188,9 +188,9 @@ User Question/Request: {query}
 
     def get_documents_data(self):
         """
-        Get all documents in the vector store as a list of dictionaries.
+        获取向量存储中的所有文档作为字典列表。
         """
-        print("Fetching document list from vector store...")
+        print("正在从向量存储获取文档列表...")
         try:
             data = self.vector_store.get()
             metadatas = data.get("metadatas", [])

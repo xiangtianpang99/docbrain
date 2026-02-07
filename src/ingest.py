@@ -27,6 +27,8 @@ class IngestionEngine:
             embedding_function=self.embedding_model
         )
         self.busy_jobs = 0
+        import time
+        self.last_update_time = time.time()
 
     def start_job(self):
         self.busy_jobs += 1
@@ -34,10 +36,12 @@ class IngestionEngine:
     def end_job(self):
         if self.busy_jobs > 0:
              self.busy_jobs -= 1
+        import time
+        self.last_update_time = time.time()
 
     def parse_file(self, file_path: str) -> List[Document]:
         """
-        Parse a single file based on its extension and return Documents.
+        根据文件扩展名解析单个文件并返回 Document 对象列表。
         """
         ext = os.path.splitext(file_path)[1].lower()
         content = ""
@@ -126,15 +130,15 @@ class IngestionEngine:
 
     def process_file(self, file_path: str, additional_duration: int = 0):
         """
-        Ingest a single file: Delete old vectors -> Parse -> Split -> Add new vectors.
-        additional_duration: seconds to add to the existing file duration.
+        索引单个文件: 删除旧向量 -> 解析 -> 切分 -> 添加新向量。
+        additional_duration: 需要添加到现有文件时长的秒数。
         """
         self.start_job()
         try:
             abs_path = os.path.abspath(file_path)
-            print(f"Processing file: {abs_path}")
+            print(f"正在处理文件: {abs_path}")
             
-            # 1. Fetch existing duration if any
+            # 1.获取现有时长 (如果有)
             existing_duration = 0
             try:
                 results = self.vector_store._collection.get(where={"source": abs_path})
@@ -146,10 +150,10 @@ class IngestionEngine:
 
             total_duration = int(existing_duration + additional_duration)
 
-            # 2. Remove existing vectors for this file to avoid duplicates
+            # 2. 删除此文件的现有向量以避免重复
             try:
                 self.vector_store._collection.delete(where={"source": abs_path})
-                # Clean up potential legacy paths
+                # 清理潜在的旧路径格式
                 rel_path = os.path.relpath(abs_path)
                 if rel_path != abs_path:
                      self.vector_store._collection.delete(where={"source": rel_path})
@@ -165,14 +169,14 @@ class IngestionEngine:
             for doc in documents:
                 doc.metadata["duration"] = total_duration
 
-            # 4. Split
+            # 4. 切分 (Split)
             chunks = self.split_documents(documents)
             
-            # 5. Add
+            # 5. 添加 (Add)
             if chunks:
                 self.vector_store.add_documents(chunks)
                 self.vector_store.persist()
-                print(f"Indexed {len(chunks)} chunks. Total duration: {total_duration}s")
+                print(f"已索引 {len(chunks)} 个分块。总时长: {total_duration}秒")
         finally:
             self.end_job()
         
@@ -193,9 +197,9 @@ class IngestionEngine:
 
     def remove_documents_by_root(self, root_path: str):
         """
-        Remove all documents that belong to a specific root directory.
-        Since Chroma doesn't support 'startswith' in delete queries comfortably,
-        we fetch all metadata, filter in Python, and delete by ID.
+        移除属于特定根目录的所有文档。
+        由于 Chroma 不支持方便的 'startswith' 删除查询，
+        所以我们获取所有元数据，在 Python 中过滤，然后按 ID 删除。
         """
         self.start_job()
         try:
@@ -239,12 +243,12 @@ class IngestionEngine:
 
     def ingest_webpage(self, url: str, title: str, content: str, additional_duration: int = 0):
         """
-        Ingest content from a webpage.
-        additional_duration: seconds spent on this page to add to total.
+        索引网页内容。
+        additional_duration: 在此页面上花费的秒数，累加到总数。
         """
         self.start_job()
         try:
-            print(f"Ingesting webpage: {title} ({url})")
+            print(f"正在索引网页: {title} ({url})")
             
             # 1. Fetch existing duration if any
             existing_duration = 0
@@ -291,7 +295,7 @@ class IngestionEngine:
 
     def ingest_directory(self, source_dir: str):
         """
-        Ingest all supported files in a directory, skipping system and temporary folders.
+        索引目录中的所有支持文件，跳过系统和临时文件夹。
         """
         ignore_dirs = {
             "node_modules", ".git", ".venv", ".vscode", "__pycache__", 
