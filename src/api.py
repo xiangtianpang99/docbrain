@@ -307,9 +307,37 @@ async def ingest_webpage(payload: WebpagePayload, authorized: bool = Depends(ver
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+from src.history_manager import history_manager
+
+# --- History / Session APIs ---
+
+@app.get("/sessions")
+def list_sessions(authorized: bool = Depends(verify_token)):
+    return {"status": "success", "sessions": history_manager.get_sessions()}
+
+@app.post("/sessions")
+def create_session(authorized: bool = Depends(verify_token)):
+    session_id = history_manager.create_session("New Chat")
+    return {"status": "success", "session_id": session_id, "title": "New Chat"}
+
+@app.delete("/sessions/{session_id}")
+def delete_session(session_id: str, authorized: bool = Depends(verify_token)):
+    history_manager.delete_session(session_id)
+    return {"status": "success", "message": "Session deleted"}
+
+@app.get("/sessions/{session_id}/messages")
+def get_session_messages(session_id: str, authorized: bool = Depends(verify_token)):
+    msgs = history_manager.get_messages(session_id)
+    return {"status": "success", "messages": msgs}
+
+
 @app.post("/query")
-async def query_kb(payload: QueryPayload, authorized: bool = Depends(verify_token)):
+async def query_kb(payload: QueryPayload, session_id: Optional[str] = Query(None), authorized: bool = Depends(verify_token)):
     try:
+        # 1. 记录用户提问
+        if session_id:
+            history_manager.add_message(session_id, "user", payload.query)
+
         response = query_engine.ask(
             payload.query, 
             quality_mode=payload.quality_mode, 
@@ -320,6 +348,10 @@ async def query_kb(payload: QueryPayload, authorized: bool = Depends(verify_toke
             response = response.raw
         elif not isinstance(response, str):
             response = str(response)
+
+        # 2. 记录 AI 回复
+        if session_id:
+             history_manager.add_message(session_id, "assistant", response)
 
         return {"status": "success", "response": response}
     except Exception as e:
