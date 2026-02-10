@@ -37,13 +37,15 @@ export function useKnowledgeBase(isBackendReady, isIndexing, serverLastUpdate) {
         }
     }, [isIndexing, serverLastUpdate, lastFetchTime])
 
-    // Auto-expand groups when searching
+    // Auto-expand groups when searching, collapse when cleared
     useEffect(() => {
         if (searchQuery.trim() && config && config.watch_paths) {
             const allGroups = {}
             config.watch_paths.forEach(p => allGroups[p] = true)
             allGroups['Others'] = true
             setExpandedGroups(allGroups)
+        } else {
+            setExpandedGroups({})
         }
     }, [searchQuery, config])
 

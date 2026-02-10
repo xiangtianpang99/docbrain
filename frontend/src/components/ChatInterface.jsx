@@ -1,14 +1,16 @@
 import React from 'react'
-import { Send, Loader2 } from 'lucide-react'
+import { Send, Loader2, PanelLeftOpen } from 'lucide-react'
 
-export default function ChatInterface({ messages, isLoading, input, setInput, onSend, messagesEndRef }) {
+export default function ChatInterface({ sidebarOpen, onToggleSidebar, messages, isLoading, input, setInput, onSend, messagesEndRef, sessionTitle }) {
     return (
         <div className="flex-1 flex flex-col min-w-0 bg-gradient-to-b from-neutral-950 to-neutral-900">
             {/* Header */}
             <div className="h-16 border-b border-red-900/20 flex items-center px-6 justify-between bg-black/20 backdrop-blur-md z-10 sticky top-0">
-                <div className="flex flex-col">
-                    <span className="font-medium text-gray-200">Chat Session</span>
-                    <span className="text-xs text-red-400/80">Standard RAG Mode</span>
+                <div className="flex items-center gap-4">
+                    <div className="flex flex-col">
+                        <span className="font-medium text-gray-200">{sessionTitle || "Chat Session"}</span>
+                        <span className="text-xs text-red-400/80">Standard RAG Mode</span>
+                    </div>
                 </div>
                 <div className="px-2 py-1 bg-red-500/10 text-red-400 text-xs rounded border border-red-500/20 flex items-center gap-1 shadow-[0_0_10px_rgba(239,68,68,0.1)]">
                     <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse"></span>

@@ -42,6 +42,9 @@ function App() {
   const [showSettings, setShowSettings] = useState(false)
   const [previewFile, setPreviewFile] = useState(null)
 
+  // 6. Sidebar State
+  const [sidebarOpen, setSidebarOpen] = useState(true)
+
 
   // --- Render ---
 
@@ -76,6 +79,8 @@ function App() {
 
       {/* Main Layout */}
       <Sidebar
+        isOpen={sidebarOpen}
+        onToggle={() => setSidebarOpen(!sidebarOpen)}
         sessions={sessions}
         currentSessionId={currentSessionId}
         onSessionSwitch={setCurrentSessionId}
@@ -97,12 +102,15 @@ function App() {
       />
 
       <ChatInterface
+        sidebarOpen={sidebarOpen}
+        onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
         messages={messages}
         isLoading={isLoading}
         input={input}
         setInput={setInput}
         onSend={handleSend}
         messagesEndRef={messagesEndRef}
+        sessionTitle={sessions.find(s => s.id === currentSessionId)?.title || "Chat Session"}
       />
 
     </div>
