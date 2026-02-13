@@ -34,21 +34,8 @@ echo [2/5] 准备 Python Embedded 3.10.9...
 
 :: 每次都重建干净的 Python Embedded，避免 setup 安装的包残留导致体积膨胀
 if exist "runtime\python" (
-    :: 检查是否有进程占用 runtime\python
-    tasklist /FI "IMAGENAME eq python.exe" 2>nul | findstr /I "python.exe" >nul
-    if %errorlevel% equ 0 (
-        echo   [WARNING] 检测到 python.exe 正在运行，正在关闭...
-        taskkill /F /IM python.exe >nul 2>&1
-        timeout /t 2 >nul
-    )
     echo   清理旧的 runtime\python\ ...
     rmdir /s /q "runtime\python"
-    if exist "runtime\python" (
-        echo [ERROR] 无法删除 runtime\python\，文件被占用。
-        echo         请关闭所有 docBrain 窗口后重试。
-        pause
-        exit /b 1
-    )
 )
 mkdir runtime\python
 
