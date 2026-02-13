@@ -1,24 +1,23 @@
 @echo off
 setlocal
-chcp 65001 >nul 2>&1
 
 echo ===================================================
 echo   Starting docBrain Development Environment
 echo ===================================================
 
-:: 确保在项目根目录执行
+:: Ensure we are in the project root
 cd /d "%~dp0"
 
-:: 1. 检查运行时
+:: 1. Check runtime
 if not exist "runtime\python\python.exe" (
-    echo [ERROR] 未找到 runtime\python\python.exe
-    echo 请先运行 setup_intranet.bat 或 export_deps.bat
+    echo [ERROR] runtime\python\python.exe not found
+    echo         Please run setup_intranet.bat or export_deps.bat first.
     pause
     exit /b 1
 )
 if not exist "runtime\node\node.exe" (
-    echo [ERROR] 未找到 runtime\node\node.exe
-    echo 请先运行 setup_intranet.bat 或 export_deps.bat
+    echo [ERROR] runtime\node\node.exe not found
+    echo         Please run setup_intranet.bat or export_deps.bat first.
     pause
     exit /b 1
 )
