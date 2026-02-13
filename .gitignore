@@ -1,6 +1,12 @@
 # Virtual Environment
 .venv/
 venv/
+
+# Portable Runtime (内网便携化)
+runtime/
+offline_packages/
+exportLog/
+
 __pycache__/
 *.py[cod]
 
