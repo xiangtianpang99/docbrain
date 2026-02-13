@@ -1,0 +1,287 @@
+import os
+from typing import List, Optional
+from langchain_community.embeddings import HuggingFaceEmbeddings
+from langchain_community.vectorstores import Chroma
+from langchain_community.vectorstores import Chroma
+from langchain_core.messages import SystemMessage, HumanMessage
+from src.llm_provider import LLMFactory
+from src.config_manager import config_manager
+
+class QueryEngine:
+    def __init__(self, persist_directory: str = None, model_name: str = "all-MiniLM-L6-v2", vector_store=None):
+        """
+        Initialize the Query Engine.
+        """
+        if persist_directory is None and vector_store is None:
+            # Resolve to absolute path relative to project root
+            # Resolve to absolute path relative to project root (docbrain root)
+            backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            project_root = os.path.dirname(backend_dir)
+            persist_directory = os.path.join(project_root, "chroma_db")
+
+        # Check for local model
+        root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        local_model_path = os.path.join(root_dir, "models", model_name)
+        if os.path.exists(local_model_path):
+            print(f"Found local model at: {local_model_path}")
+            model_name = local_model_path
+
+        print(f"Loading embedding model: {model_name}...")
+        # Force CPU to avoid iGPU spikes
+        model_kwargs = {'device': 'cpu'}
+        encode_kwargs = {'normalize_embeddings': False}
+
+        self.embedding_model = HuggingFaceEmbeddings(
+            model_name=model_name,
+            model_kwargs=model_kwargs,
+            encode_kwargs=encode_kwargs
+        )
+        
+        if vector_store:
+            print("正在使用共享向量存储实例...")
+            self.vector_store = vector_store
+        else:
+            print(f"正在从 {persist_directory} 加载向量存储...")
+            self.vector_store = Chroma(
+                persist_directory=persist_directory, 
+                embedding_function=self.embedding_model
+            )
+        
+        # 使用工厂初始化 LLM
+        print(f"正在初始化 LLM，提供商: {config_manager.get('active_provider', 'deepseek')}...")
+        try:
+            self.llm = LLMFactory.create_langchain_llm(config_manager)
+        except Exception as e:
+            print(f"Error initializing LLM: {e}")
+            self.llm = None
+
+    def retrieve_context(self, query: str, k: int = 8, quality_mode: bool = False) -> List[str]:
+        """
+        为查询检索相关的文档分块。
+        """
+        if not quality_mode:
+            print(f"正在搜索相关上下文: '{query}'")
+            return self.vector_store.similarity_search(query, k=k)
+        
+        # 质量模式实现
+        print(f"正在以质量模式搜索: '{query}'")
+        priority_keywords = os.getenv("PRIORITY_KEYWORDS", "").lower().split(",")
+        priority_keywords = [kw.strip() for kw in priority_keywords if kw.strip()]
+        
+        # 1. 获取更大的候选池
+        fetch_k = k * 3
+        docs_with_scores = self.vector_store.similarity_search_with_relevance_scores(query, k=fetch_k)
+        
+        # 2. 根据路径关键字和新旧程度重新排序
+        ranked_results = []
+        import time
+        now = time.time()
+        
+        for doc, score in docs_with_scores:
+            boost = 1.0
+            source_path = doc.metadata.get("source", "").lower()
+            mtime = doc.metadata.get("mtime", 0)
+            
+            # Boost based on keywords in path
+            if any(kw in source_path for kw in priority_keywords):
+                boost += 0.5  # 50% boost for priority paths
+                
+            # Slight boost for recency (within the last 30 days)
+            age_days = (now - mtime) / (24 * 3600)
+            if age_days < 30:
+                # Up to 20% boost for very recent files
+                recency_boost = 0.2 * (1 - (max(0, age_days) / 30))
+                boost += recency_boost
+                
+            final_score = score * boost
+            ranked_results.append((doc, final_score))
+            
+        # 3. Sort by final score and take top k
+        ranked_results.sort(key=lambda x: x[1], reverse=True)
+        return [r[0] for r in ranked_results[:k]]
+
+    def evaluate_complexity(self, query: str) -> bool:
+        """
+        评估查询是否复杂，是否需要 CrewAI 代理。
+        复杂查询返回 True，简单查询返回 False。
+        """
+        print("正在评估查询复杂度...")
+        system_prompt = """你是一个查询复杂度分类器。
+        分析用户的查询并确定它是 'Simple' (简单) 还是 'Complex' (复杂)。
+        
+        'Simple' 查询:
+        - 询问具体事实。
+        - 要求总结单个概念。
+        - 直接且无歧义。
+        - 可能通过检索少量文档即可回答。
+        
+        'Complex' 查询:
+        - 需要多步推理。
+        - 要求比较多个概念或文档。
+        - 请求综合计划、报告或分析。
+        - 意味着需要综合来自各种不相关来源的信息。
+        
+        仅回复 'Simple' 或 'Complex'。
+        """
+        
+        messages = [
+            SystemMessage(content=system_prompt),
+            HumanMessage(content=query)
+        ]
+        
+        try:
+            response = self.llm.invoke(messages).content.strip().lower()
+            print(f"Query classification: {response}")
+            return "complex" in response
+        except Exception:
+            return False
+
+    def ask(self, query: str, quality_mode: bool = False, force_crew: bool = False, no_crew: bool = False) -> str:
+        """
+        向 LLM 提问，使用检索到的上下文或通过 CrewAI。
+        """
+        # 1. 检查复杂度
+        is_complex = not no_crew and (force_crew or self.evaluate_complexity(query))
+        
+        if is_complex:
+            if force_crew:
+                print(">>> 强制路由到 CrewAI 代理 (测试模式) <<<")
+            else:
+                print(">>> 路由到 CrewAI 代理 (复杂查询) <<<")
+            try:
+                from src.crew_agent import DocBrainCrew
+                crew = DocBrainCrew(self)
+                return crew.run_crew(query)
+            except Exception as e:
+                print(f"CrewAI 失败: {e}。回退到标准 RAG。")
+                # Fallback to standard RAG if CrewAI fails
+        
+        # 2. 标准 RAG (简单查询)
+        print(">>> 使用标准 RAG (简单查询) <<<")
+        docs = self.retrieve_context(query, quality_mode=quality_mode)
+        if not docs:
+            return "No relevant context found in the knowledge base."
+        
+        # Build context string with metadata and formatted duration
+        context_parts = []
+        for i, doc in enumerate(docs):
+            source = doc.metadata.get("source", "Unknown")
+            duration_sec = doc.metadata.get("duration", 0)
+            effort_str = f"{duration_sec // 60}m {duration_sec % 60}s"
+            
+            part = f"[[Chunk {i+1}]]\nSource: {source}\nEffort Time: {effort_str}\nContent:\n{doc.page_content}"
+            context_parts.append(part)
+        
+        context_str = "\n\n---\n\n".join(context_parts)
+        
+        system_prompt = """你是一个专业的个人知识管理助手和工作总结专家。
+你的任务是基于提供的本地文档片段，进行逻辑严密的归纳、总结和分析。
+
+遵循以下准则：
+1. **结构化输出**：按时间顺序、项目维度或逻辑分点进行整理，确保内容易于阅读。
+2. **区分事实与观点**：明确区分工作成果（事实）与个人心得或反思（分析）。
+3. **强制来源引用**：在每个关键结论或事实后，必须在括号内注明来源（如：[来源: D:\\docs\\project.md] 或 [来源: https://...]）。
+4. **体现投入精力**：如果用户询问工作进展，请结合提供的 "Effort Time" 信息，提及在该任务上花费的估算时间。
+5. **诚实性**：如果提供的上下文不足以回答问题，请如实告知。
+
+请使用专业、简洁且富有洞察力的语气回答。"""
+
+        user_prompt = f"""Context from local documents:
+{context_str}
+
+User Question/Request: {query}
+"""
+        messages = [
+            SystemMessage(content=system_prompt),
+            HumanMessage(content=user_prompt)
+        ]
+        
+        print("Sending request to LLM...")
+        try:
+            response = self.llm.invoke(messages)
+            return response.content
+        except Exception as e:
+            return f"Error communicating with LLM: {e}"
+
+    def get_documents_data(self):
+        """
+        获取向量存储中的所有文档作为字典列表。
+        """
+        print("正在从向量存储获取文档列表...")
+        try:
+            data = self.vector_store.get()
+            metadatas = data.get("metadatas", [])
+            
+            if not metadatas:
+                return []
+
+            docs_summary = {}
+            for m in metadatas:
+                source = m.get("source", "Unknown")
+                if source not in docs_summary:
+                    docs_summary[source] = {
+                        "source": source,
+                        "title": m.get("title", os.path.basename(source)),
+                        "type": m.get("type", "file"),
+                        "duration": m.get("duration", 0),
+                        "file_size": m.get("file_size", "N/A"),
+                        "mtime": m.get("mtime", 0),
+                        "chunks": 0
+                    }
+                docs_summary[source]["chunks"] += 1
+            
+            return list(docs_summary.values())
+        except Exception as e:
+            print(f"Error fetching document data: {e}")
+            return []
+
+    def list_documents(self):
+        """
+        List all documents in the vector store with their metadata.
+        """
+        try:
+            docs_data = self.get_documents_data()
+            if not docs_data:
+                return "The knowledge base is empty."
+
+            # Format the output
+            # Format the output
+            import datetime
+            output = []
+            # We'll use a wider format for full paths
+            header = f"{'Type':<8} | {'Source (Path/URL)':<70} | {'Effort':<10} | {'MTime':<20}"
+            output.append(header)
+            output.append("-" * len(header))
+            
+            for info in sorted(docs_data, key=lambda x: x['mtime'], reverse=True):
+                mtime_str = "N/A"
+                if info["mtime"]:
+                    mtime_str = datetime.datetime.fromtimestamp(info["mtime"]).strftime('%Y-%m-%d %H:%M:%S')
+                
+                # Format duration
+                duration_sec = info.get("duration", 0)
+                effort_str = f"{duration_sec // 60}m {duration_sec % 60}s"
+                
+                # Format display source
+                source = info["source"]
+                if info["type"] == "webpage":
+                    display_source = f"{info['title']} ({source})"
+                else:
+                    display_source = source
+                
+                if len(display_source) > 70:
+                    display_source = "..." + display_source[-67:]
+                    
+                output.append(f"{info['type']:<8} | {display_source:<70} | {effort_str:<10} | {mtime_str:<20}")
+            
+            return "\n".join(output)
+            
+        except Exception as e:
+            return f"Error listing documents: {e}"
+
+if __name__ == "__main__":
+    # Test run (requires DB to be populated first)
+    engine = QueryEngine()
+    response = engine.ask("What is this project about?")
+    print("\n--- Response ---\n")
+    print(response)

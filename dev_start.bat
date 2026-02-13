@@ -15,7 +15,7 @@ if not exist ".venv" (
 
 :: 2. Start Backend Server in a new window
 echo Starting Backend API (Port 8000)...
-start "docBrain Backend" cmd /k ".venv\Scripts\python.exe src\api.py"
+start "docBrain Backend" cmd /k "cd backend && ..\.venv\Scripts\python.exe src\api.py"
 
 :: 3. Start Frontend Server in a new window
 echo Starting Frontend Server (Port 5173)...
