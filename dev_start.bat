@@ -22,15 +22,25 @@ if not exist "runtime\node\node.exe" (
     exit /b 1
 )
 
-:: 2. Start Backend Server in a new window
+:: 2. Prepend embedded runtimes to PATH so they take priority over system versions
+set "PATH=%~dp0runtime\node;%~dp0runtime\python;%~dp0runtime\python\Scripts;%PATH%"
+
+echo Using embedded runtimes:
+echo   Python: %~dp0runtime\python\python.exe
+runtime\python\python.exe --version
+echo   Node:   %~dp0runtime\node\node.exe
+runtime\node\node.exe --version
+echo.
+
+:: 3. Start Backend Server in a new window
 echo Starting Backend API (Port 8000)...
-start "docBrain Backend" cmd /k "cd /d "%~dp0backend" && ..\runtime\python\python.exe src\api.py"
+start "docBrain Backend" cmd /k "set "PATH=%~dp0runtime\node;%~dp0runtime\python;%~dp0runtime\python\Scripts;%PATH%" && cd /d "%~dp0backend" && ..\runtime\python\python.exe src\api.py"
 
-:: 3. Start Frontend Server in a new window
+:: 4. Start Frontend Server in a new window
 echo Starting Frontend Server (Port 5173)...
-start "docBrain Frontend" cmd /k "cd /d "%~dp0frontend" && ..\runtime\node\npm.cmd run dev"
+start "docBrain Frontend" cmd /k "set "PATH=%~dp0runtime\node;%~dp0runtime\python;%~dp0runtime\python\Scripts;%PATH%" && cd /d "%~dp0frontend" && ..\runtime\node\npm.cmd run dev"
 
-:: 4. Wait a moment for servers to initialize, then open browser
+:: 5. Wait a moment for servers to initialize, then open browser
 echo Waiting for servers to launch...
 timeout /t 5 >nul
 start http://localhost:5173
