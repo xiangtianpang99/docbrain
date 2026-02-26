@@ -36,7 +36,8 @@ export default function SettingsModal({ onClose, apiUrl, apiKey, onConfigUpdate 
                     deepseek: { api_key: '', base_url: 'https://api.deepseek.com', model: 'deepseek-chat' },
                     openai: { api_key: '', base_url: 'https://api.openai.com/v1', model: 'gpt-4' },
                     ollama: { api_key: 'ollama', base_url: 'http://localhost:11434', model: 'llama3' },
-                    custom: { api_key: '', base_url: '', model: '' }
+                    custom: { api_key: '', base_url: '', model: '' },
+                    company_internal: { api_key: '', base_url: '', open_id: '' }
                 }
             }
             // Sync active provider
@@ -81,7 +82,8 @@ export default function SettingsModal({ onClose, apiUrl, apiKey, onConfigUpdate 
                 provider: provider,
                 api_key: providerConfig.api_key,
                 base_url: providerConfig.base_url,
-                model: providerConfig.model
+                model: providerConfig.model,
+                open_id: providerConfig.open_id
             }
 
             const response = await axios.post(`${apiUrl}/actions/test_llm`, payload, {
@@ -213,19 +215,20 @@ export default function SettingsModal({ onClose, apiUrl, apiKey, onConfigUpdate 
                                             {/* Provider Selector */}
                                             <div className="mb-6">
                                                 <label className="block text-sm font-medium text-gray-400 mb-2">Active Provider</label>
-                                                <div className="grid grid-cols-4 gap-2">
-                                                    {['deepseek', 'openai', 'ollama', 'custom'].map((p) => (
+                                                <div className="grid grid-cols-5 gap-2">
+                                                    {['deepseek', 'openai', 'ollama', 'custom', 'company_internal'].map((p) => (
                                                         <button
                                                             key={p}
                                                             onClick={() => handleProviderChange(p)}
                                                             className={clsx(
-                                                                "px-2 py-3 rounded-xl border text-sm font-medium capitalize transition-all",
+                                                                "px-2 py-3 rounded-xl border text-sm font-medium transition-all",
                                                                 config.active_provider === p
                                                                     ? "bg-red-600 border-red-500 text-white shadow-lg shadow-red-900/20"
-                                                                    : "bg-white/5 border-white/10 text-gray-400 hover:bg-white/10 hover:text-gray-200"
+                                                                    : "bg-white/5 border-white/10 text-gray-400 hover:bg-white/10 hover:text-gray-200",
+                                                                p === 'company_internal' ? "col-span-1 leading-tight text-xs" : "capitalize"
                                                             )}
                                                         >
-                                                            {p}
+                                                            {p === 'company_internal' ? 'Internal' : p}
                                                         </button>
                                                     ))}
                                                 </div>
@@ -256,7 +259,9 @@ export default function SettingsModal({ onClose, apiUrl, apiKey, onConfigUpdate 
                                                     </div>
 
                                                     <div>
-                                                        <label className="block text-xs font-medium text-gray-500 mb-1">Base URL</label>
+                                                        <label className="block text-xs font-medium text-gray-500 mb-1">
+                                                            {config.active_provider === 'company_internal' ? 'Company API URL' : 'Base URL'}
+                                                        </label>
                                                         <input
                                                             type="text"
                                                             value={config.llm_providers[config.active_provider]?.base_url || ''}
@@ -266,16 +271,29 @@ export default function SettingsModal({ onClose, apiUrl, apiKey, onConfigUpdate 
                                                         />
                                                     </div>
 
-                                                    <div>
-                                                        <label className="block text-xs font-medium text-gray-500 mb-1">Model Name</label>
-                                                        <input
-                                                            type="text"
-                                                            value={config.llm_providers[config.active_provider]?.model || ''}
-                                                            onChange={(e) => updateProviderConfig('model', e.target.value)}
-                                                            placeholder="e.g. gpt-4"
-                                                            className="w-full bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-red-500/50 font-mono"
-                                                        />
-                                                    </div>
+                                                    {config.active_provider === 'company_internal' ? (
+                                                        <div>
+                                                            <label className="block text-xs font-medium text-gray-500 mb-1">Open ID</label>
+                                                            <input
+                                                                type="text"
+                                                                value={config.llm_providers[config.active_provider]?.open_id || ''}
+                                                                onChange={(e) => updateProviderConfig('open_id', e.target.value)}
+                                                                placeholder="Identity string..."
+                                                                className="w-full bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-red-500/50 font-mono"
+                                                            />
+                                                        </div>
+                                                    ) : (
+                                                        <div>
+                                                            <label className="block text-xs font-medium text-gray-500 mb-1">Model Name</label>
+                                                            <input
+                                                                type="text"
+                                                                value={config.llm_providers[config.active_provider]?.model || ''}
+                                                                onChange={(e) => updateProviderConfig('model', e.target.value)}
+                                                                placeholder="e.g. gpt-4"
+                                                                className="w-full bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-sm text-gray-200 focus:outline-none focus:border-red-500/50 font-mono"
+                                                            />
+                                                        </div>
+                                                    )}
                                                 </div>
 
                                                 {/* Test Connection Area */}
@@ -348,7 +366,7 @@ export default function SettingsModal({ onClose, apiUrl, apiKey, onConfigUpdate 
                                             </div>
 
                                             <div className="flex justify-end">
-                                                 <button 
+                                                <button
                                                     onClick={async () => {
                                                         try {
                                                             const res = await axios.post(`${apiUrl}/actions/browse_folder`, {}, {
@@ -363,9 +381,9 @@ export default function SettingsModal({ onClose, apiUrl, apiKey, onConfigUpdate 
                                                         }
                                                     }}
                                                     className="text-xs flex items-center gap-1 text-gray-400 hover:text-white transition"
-                                                 >
-                                                    <FolderPlus size={12}/> Browse Local Folder
-                                                 </button>
+                                                >
+                                                    <FolderPlus size={12} /> Browse Local Folder
+                                                </button>
                                             </div>
                                         </div>
                                     </div>

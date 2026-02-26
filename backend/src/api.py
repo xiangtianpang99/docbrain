@@ -207,6 +207,7 @@ class TestLLMPayload(BaseModel):
     api_key: Optional[str] = ""
     base_url: Optional[str] = ""
     model: Optional[str] = ""
+    open_id: Optional[str] = ""
 
 @app.post("/actions/test_llm")
 async def test_llm_connection(payload: TestLLMPayload, authorized: bool = Depends(verify_token)):
@@ -215,6 +216,33 @@ async def test_llm_connection(payload: TestLLMPayload, authorized: bool = Depend
     This creates a temporary provider instance and attempts a simple generation.
     """
     try:
+        if payload.provider == "company_internal":
+            import time
+            from src.query import call_company_agent
+            print(f"Testing company internal LLM connection...")
+            
+            start_time = time.time()
+            input_params = {
+                "instruction": "Hello", 
+                "question": "Please reply with just 'OK'."
+            }
+            response_text = call_company_agent(
+                input_params=input_params,
+                base_url=payload.base_url,
+                api_key=payload.api_key,
+                open_id=payload.open_id,
+                session_id=None,
+                response_mode="noStreaming"
+            )
+            duration = time.time() - start_time
+            
+            return {
+                "status": "success",
+                "message": "Connection successful.",
+                "latency_ms": int(duration * 1000),
+                "reply": response_text
+            }
+
         # Construct a temporary config dictionary
         config = {}
         if payload.api_key:

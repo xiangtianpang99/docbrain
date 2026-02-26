@@ -4,8 +4,53 @@ from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_community.vectorstores import Chroma
 from langchain_community.vectorstores import Chroma
 from langchain_core.messages import SystemMessage, HumanMessage
+import requests
+from typing import Optional
 from src.llm_provider import LLMFactory
 from src.config_manager import config_manager
+
+def call_company_agent(
+        input_params: dict,
+        base_url: str,
+        api_key: str,
+        open_id: str,
+        session_id: Optional[str] = None,
+        response_mode: str = "noStreaming",
+        timeout: int = 30,
+) -> dict:
+    """
+    按公司提供的 curl 示例调用内部模型 API。
+    返回值是 response.json() 的结果，你需要根据实际返回结构解析文本。
+    """
+    if not base_url or not api_key:
+        raise RuntimeError("COMPANY_API_URL 或 COMPANY_API_KEY 未配置，请在设置或 .env 中设置。")
+
+    headers = {
+        "Api-Key": api_key,
+        "Content-Type": "application/json;charset=utf-8",
+    }
+
+    payload = {
+        "sessionId": session_id or "",
+        "responseMode": response_mode,
+        "openId": open_id or "",
+        "inputParams": input_params,
+    }
+
+    resp = requests.post(base_url, headers=headers, json=payload, timeout=timeout)
+    resp.raise_for_status()
+    data = resp.json()
+
+    if not isinstance(data, dict):
+        return str(data)
+
+    if data.get("returnCode") != "SUC0000":
+        raise RuntimeError(f"LLM API error: {data.get('returnCode')} - {data.get('errorMsg')}")
+
+    body = data.get("body") or {}
+    text = body.get("output") or ""
+
+    return str(text)
 
 class QueryEngine:
     def __init__(self, persist_directory: str = None, model_name: str = "all-MiniLM-L6-v2", vector_store=None):
@@ -140,8 +185,15 @@ class QueryEngine:
         """
         向 LLM 提问，使用检索到的上下文或通过 CrewAI。
         """
-        # 1. 检查复杂度
-        is_complex = not no_crew and (force_crew or self.evaluate_complexity(query))
+        active_provider = config_manager.get("active_provider", "")
+        is_company_internal = (active_provider == "company_internal")
+
+        # 1. 检查复杂度 (公司内网模型直接走标准 RAG，不支持 CrewAI)
+        if is_company_internal:
+            is_complex = False
+            print(">>> 检查到公司内网模型，已跳过复杂查询网关评估 <<<")
+        else:
+            is_complex = not no_crew and (force_crew or self.evaluate_complexity(query))
         
         if is_complex:
             if force_crew:
@@ -196,12 +248,40 @@ User Question/Request: {query}
             HumanMessage(content=user_prompt)
         ]
         
-        print("Sending request to LLM...")
-        try:
-            response = self.llm.invoke(messages)
-            return response.content
-        except Exception as e:
-            return f"Error communicating with LLM: {e}"
+        if is_company_internal:
+            print("Sending request to company internal LLM...")
+            try:
+                # 获取内网专属配置获取
+                providers_config = config_manager.get("llm_providers", {})
+                internal_config = providers_config.get("company_internal", {})
+                
+                input_params = {
+                    "instruction": system_prompt,
+                    "question": user_prompt,
+                }
+                
+                api_key = internal_config.get("api_key") or os.getenv("COMPANY_API_KEY", "")
+                base_url = internal_config.get("base_url") or os.getenv("COMPANY_API_URL", "")
+                open_id = internal_config.get("open_id") or os.getenv("COMPANY_OPEN_ID", "")
+
+                answer = call_company_agent(
+                    input_params=input_params,
+                    base_url=base_url,
+                    api_key=api_key,
+                    open_id=open_id,
+                    session_id=None,
+                    response_mode="noStreaming"
+                )
+                return answer
+            except Exception as e:
+                return f"Error communicating with company internal LLM: {e}"
+        else:
+            print("Sending request to LLM...")
+            try:
+                response = self.llm.invoke(messages)
+                return response.content
+            except Exception as e:
+                return f"Error communicating with LLM: {e}"
 
     def get_documents_data(self):
         """

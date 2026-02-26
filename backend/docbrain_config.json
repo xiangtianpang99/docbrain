@@ -7,7 +7,7 @@
     "enable_watchdog": true,
     "enable_scheduler": true,
     "api_key": "docbrain_default_key",
-    "active_provider": "custom",
+    "active_provider": "company_internal",
     "llm_providers": {
         "deepseek": {
             "api_key": "sk-c4fe983fb7ce4ef4b209252950535acb",
@@ -28,6 +28,11 @@
             "api_key": "sk-txtlkfgziiohrbppylhbtcvlptznxzihirvvcfdzwjlbfxjc",
             "base_url": "https://api.siliconflow.cn/v1",
             "model": "deepseek-ai/DeepSeek-V3.2"
+        },
+        "company_internal": {
+            "api_key": "",
+            "base_url": "",
+            "open_id": ""
         }
     },
     "deepseek_api_key": "",
