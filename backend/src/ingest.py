@@ -162,19 +162,32 @@ class IngestionEngine:
             abs_path = os.path.abspath(file_path)
             print(f"正在处理文件: {abs_path}")
             
-            # 1.获取现有时长 (如果有)
+            # 1.获取现有状态 (duration 和 mtime)
             existing_duration = 0
+            existing_mtime = 0
             try:
+                # 提取已有的 metadatas 第一条作为参考
                 results = self.vector_store._collection.get(where={"source": abs_path})
-                if results and results.get("metadatas"):
-                    # All chunks for one file should have the same duration
-                    existing_duration = results["metadatas"][0].get("duration", 0)
+                if results and results.get("metadatas") and len(results["metadatas"]) > 0:
+                    first_metadata = results["metadatas"][0]
+                    existing_duration = first_metadata.get("duration", 0)
+                    existing_mtime = first_metadata.get("mtime", 0)
             except Exception:
                 pass
 
+            # 检查文件系统 mtime 对比是否变更
+            try:
+                current_mtime = os.stat(abs_path).st_mtime
+                # 考虑到浮点数精度截断问题，这里用整数对比并设置一定容差 (例如未改变)
+                if existing_mtime > 0 and abs(current_mtime - existing_mtime) < 1.0 and additional_duration == 0:
+                    print(f"[{abs_path}] 文件未修改，跳过重构向量 (Skipping unmodified file)")
+                    return
+            except Exception as e:
+                print(f"检查文件信息失败 {abs_path}: {e}")
+
             total_duration = int(existing_duration + additional_duration)
 
-            # 2. 删除此文件的现有向量以避免重复
+            # 2. 删除此文件的现有向量以避免重复/更新
             try:
                 self.vector_store._collection.delete(where={"source": abs_path})
                 # 清理潜在的旧路径格式

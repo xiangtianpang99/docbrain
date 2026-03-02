@@ -2,7 +2,6 @@ from abc import ABC, abstractmethod
 from typing import Any, Dict, Optional
 import os
 from langchain_community.chat_models import ChatOpenAI
-from langchain_google_genai import ChatGoogleGenerativeAI
 from crewai import LLM
 
 class LLMProvider(ABC):
@@ -134,7 +133,6 @@ class LLMFactory:
         "deepseek": DeepSeekProvider(),
         "openai": OpenAIProvider(),
         "ollama": OllamaProvider(),
-        "google": GoogleProvider(),
         "custom": OpenAIProvider() # Custom usually implies OpenAI-compatible
     }
 
