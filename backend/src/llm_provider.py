@@ -2,6 +2,7 @@ from abc import ABC, abstractmethod
 from typing import Any, Dict, Optional
 import os
 from langchain_community.chat_models import ChatOpenAI
+from langchain_google_genai import ChatGoogleGenerativeAI
 from crewai import LLM
 
 class LLMProvider(ABC):
@@ -107,11 +108,33 @@ class OllamaProvider(LLMProvider):
             api_key="ollama"
         )
 
+class GoogleProvider(LLMProvider):
+    def get_langchain_llm(self, config: Dict[str, Any]) -> Any:
+        api_key = config.get("api_key")
+        model = config.get("model", "gemini-2.5-flash")
+        
+        # We ignore base_url for Google unless they use Vertex AI which is a different setup
+        return ChatGoogleGenerativeAI(
+            model=model,
+            temperature=0.7,
+            google_api_key=api_key
+        )
+
+    def get_crew_llm(self, config: Dict[str, Any]) -> Any:
+        api_key = config.get("api_key")
+        model = config.get("model", "gemini-2.5-flash")
+        
+        return LLM(
+            model=f"gemini/{model}",
+            api_key=api_key
+        )
+
 class LLMFactory:
     _providers = {
         "deepseek": DeepSeekProvider(),
         "openai": OpenAIProvider(),
         "ollama": OllamaProvider(),
+        "google": GoogleProvider(),
         "custom": OpenAIProvider() # Custom usually implies OpenAI-compatible
     }
 
