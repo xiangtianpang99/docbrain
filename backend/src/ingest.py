@@ -334,45 +334,49 @@ class IngestionEngine:
         """
         索引目录中的所有支持文件，跳过系统和临时文件夹。
         """
-        ignore_dirs = {
-            "node_modules", ".git", ".venv", ".vscode", "__pycache__", 
-            "System Volume Information", "$RECYCLE.BIN", ".idea", ".DS_Store",
-            "venv", "env", "tmp", "temp"
-        }
-        
-        if not os.path.isabs(source_dir):
-            # If relative, valid against process CWD or project root
-            # Priority: 1. CWD (if exists) 2. Backend Root (if exists)
-            if not os.path.exists(source_dir):
-                backend_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-                potential_path = os.path.join(backend_root, source_dir)
-                if os.path.exists(potential_path):
-                    source_dir = potential_path
-
-        print(f"Scanning directory: {source_dir}")
-        patterns = [
-            "**/*.txt", "**/*.md", "**/*.pdf", 
-            "**/*.docx", "**/*.doc", 
-            "**/*.xlsx", "**/*.xls", 
-            "**/*.pptx", "**/*.ppt"
-        ]
-        all_files = []
-        
-        # Using os.walk for better control over directory exclusion
-        for root, dirs, files in os.walk(source_dir):
-            # In-place modification of dirs to skip ignored directories
-            dirs[:] = [d for d in dirs if d not in ignore_dirs and not d.startswith(".")]
+        self.start_job()
+        try:
+            ignore_dirs = {
+                "node_modules", ".git", ".venv", ".vscode", "__pycache__", 
+                "System Volume Information", "$RECYCLE.BIN", ".idea", ".DS_Store",
+                "venv", "env", "tmp", "temp"
+            }
             
-            for file in files:
-                if any(file.lower().endswith(p.replace("**/*", "")) for p in patterns):
-                    all_files.append(os.path.join(root, file))
-        
-        print(f"Found {len(all_files)} files to process.")
-        for file_path in all_files:
-            # process_file will handle abspath conversion
-            self.process_file(file_path)
-        
-        print("Ingestion complete.")
+            if not os.path.isabs(source_dir):
+                # If relative, valid against process CWD or project root
+                # Priority: 1. CWD (if exists) 2. Backend Root (if exists)
+                if not os.path.exists(source_dir):
+                    backend_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+                    potential_path = os.path.join(backend_root, source_dir)
+                    if os.path.exists(potential_path):
+                        source_dir = potential_path
+
+            print(f"Scanning directory: {source_dir}")
+            patterns = [
+                "**/*.txt", "**/*.md", "**/*.pdf", 
+                "**/*.docx", "**/*.doc", 
+                "**/*.xlsx", "**/*.xls", 
+                "**/*.pptx", "**/*.ppt"
+            ]
+            all_files = []
+            
+            # Using os.walk for better control over directory exclusion
+            for root, dirs, files in os.walk(source_dir):
+                # In-place modification of dirs to skip ignored directories
+                dirs[:] = [d for d in dirs if d not in ignore_dirs and not d.startswith(".")]
+                
+                for file in files:
+                    if any(file.lower().endswith(p.replace("**/*", "")) for p in patterns):
+                        all_files.append(os.path.join(root, file))
+            
+            print(f"Found {len(all_files)} files to process.")
+            for file_path in all_files:
+                # process_file will handle abspath conversion
+                self.process_file(file_path)
+            
+            print("Ingestion complete.")
+        finally:
+            self.end_job()
 
 if __name__ == "__main__":
     ingestor = IngestionEngine()

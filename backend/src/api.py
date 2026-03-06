@@ -43,6 +43,9 @@ async def lifespan(app: FastAPI):
     # 共享向量存储实例以确保一致性
     query_engine = QueryEngine(vector_store=engine.vector_store)
     
+    # 保证 scheduler 使用全局引擎，正确同步 busy_jobs 和 last_update_time
+    scheduler.set_engine(engine)
+    
     # 根据配置初始化后台服务
     print("正在初始化后台服务...")
     global_monitor.start() # 启动监控

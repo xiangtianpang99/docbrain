@@ -8,7 +8,10 @@ class DocBrainScheduler:
     def __init__(self):
         self.running = False
         self.task = None
-        self.ingestion_engine = IngestionEngine()
+        self.ingestion_engine = None # 将在运行时或初始化后注入全局引擎
+
+    def set_engine(self, engine: IngestionEngine):
+        self.ingestion_engine = engine
 
     async def start(self):
         if self.running:

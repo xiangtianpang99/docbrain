@@ -1,6 +1,5 @@
 {
     "watch_paths": [
-        "./data",
         "C:\\Users\\MECHREVO\\Desktop\\manager"
     ],
     "schedule_interval_minutes": 64,

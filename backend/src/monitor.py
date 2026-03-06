@@ -119,12 +119,14 @@ class GlobalMonitor:
             self.observer.start()
             print(f"Monitor: Started watching {scheduled_count} directories.")
         else:
+            self.observer = None
             print("Monitor: No valid directories to watch.")
 
     def stop(self):
         if self.observer:
-            self.observer.stop()
-            self.observer.join()
+            if self.observer.is_alive():
+                self.observer.stop()
+                self.observer.join()
             self.observer = None
             print("Monitor: Stopped.")
 
