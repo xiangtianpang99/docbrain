@@ -2,12 +2,12 @@ import { useState, useEffect } from 'react'
 import axios from 'axios'
 import { API_URL, API_KEY } from '../config'
 
-export function useKnowledgeBase(isBackendReady, isIndexing, serverLastUpdate) {
+export function useKnowledgeBase(isBackendReady, isIndexing, serverVersion) {
     const [documents, setDocuments] = useState([])
     const [config, setConfig] = useState(null)
     const [docsLoading, setDocsLoading] = useState(true)
     const [isRefreshing, setIsRefreshing] = useState(false)
-    const [lastFetchTime, setLastFetchTime] = useState(0)
+    const [lastFetchVersion, setLastFetchVersion] = useState(0)
 
     // Grouping state
     const [expandedGroups, setExpandedGroups] = useState({})
@@ -20,22 +20,35 @@ export function useKnowledgeBase(isBackendReady, isIndexing, serverLastUpdate) {
         }
     }, [isBackendReady])
 
+    const [wasIndexing, setWasIndexing] = useState(false)
+
     // Sync Logic
     useEffect(() => {
         // Update local refreshing state based on backend status
-        if (isIndexing) {
-            setIsRefreshing(true)
-        } else {
-            setIsRefreshing(false)
-        }
+        setIsRefreshing(isIndexing)
 
-        // Check if we need to fetch new data
-        // If server has newer data (serverLastUpdate > lastFetchTime) AND is not currently indexing
-        if (!isIndexing && serverLastUpdate > lastFetchTime) {
-            console.log(`New data detected! Server: ${serverLastUpdate} > Local: ${lastFetchTime}`)
-            fetchDocuments()
+        if (isIndexing) {
+            setWasIndexing(true)
+        } else {
+            let shouldFetch = false
+
+            // Trigger 1: State transition from indexing to idle
+            if (wasIndexing) {
+                console.log("Indexing finished! Triggering refresh...")
+                shouldFetch = true
+                setWasIndexing(false)
+            }
+            // Trigger 2: Server got new data silently (version incremented)
+            else if (lastFetchVersion > 0 && serverVersion > lastFetchVersion) {
+                console.log(`New data version detected! Server: ${serverVersion} > Local: ${lastFetchVersion}`)
+                shouldFetch = true
+            }
+
+            if (shouldFetch) {
+                fetchDocuments()
+            }
         }
-    }, [isIndexing, serverLastUpdate, lastFetchTime])
+    }, [isIndexing, serverVersion, lastFetchVersion, wasIndexing])
 
     // Auto-expand groups when searching, collapse when cleared
     useEffect(() => {
@@ -61,7 +74,8 @@ export function useKnowledgeBase(isBackendReady, isIndexing, serverLastUpdate) {
 
             if (docsRes.data && docsRes.data.status === 'success') {
                 setDocuments(docsRes.data.documents)
-                setLastFetchTime(Date.now() / 1000)
+                const version = docsRes.data.docs_version || 1
+                setLastFetchVersion(version)
             }
             if (configRes.data) {
                 setConfig(configRes.data)

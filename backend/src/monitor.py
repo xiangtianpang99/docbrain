@@ -79,11 +79,19 @@ from src.config_manager import config_manager
 class GlobalMonitor:
     def __init__(self):
         self.observer = None
-        self.ingestor = IngestionEngine()
+        self.ingestor = None
+        self.handler = None
+
+    def set_engine(self, engine: IngestionEngine):
+        self.ingestor = engine
         self.handler = DocHandler(self.ingestor)
 
     def start(self):
         self.stop() # 确保停止先前的观察者
+        
+        if not self.ingestor:
+             print("Monitor: Engine not set, skipping start.")
+             return
         
         if not config_manager.get("enable_watchdog", True):
              print("配置中已禁用实时监控。")

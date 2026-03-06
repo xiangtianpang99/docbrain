@@ -18,7 +18,7 @@ function App() {
   const messagesEndRef = useRef(null)
 
   // 1. System Status
-  const { isBackendReady, connectionRetries, isIndexing, lastUpdate } = useSystemStatus()
+  const { isBackendReady, connectionRetries, isIndexing, serverVersion } = useSystemStatus()
 
   // 2. Session Management
   const {
@@ -31,7 +31,7 @@ function App() {
     documents, config, docsLoading, isRefreshing,
     fetchDocuments, searchQuery, setSearchQuery,
     expandedGroups, toggleGroup
-  } = useKnowledgeBase(isBackendReady, isIndexing, lastUpdate)
+  } = useKnowledgeBase(isBackendReady, isIndexing, serverVersion)
 
   // 4. Chat
   const {

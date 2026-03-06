@@ -6,7 +6,7 @@ export function useSystemStatus() {
     const [isBackendReady, setIsBackendReady] = useState(false)
     const [connectionRetries, setConnectionRetries] = useState(0)
     const [isIndexing, setIsIndexing] = useState(false)
-    const [lastUpdate, setLastUpdate] = useState(0)
+    const [serverVersion, setServerVersion] = useState(0)
 
     // 1. Initial Health Check
     useEffect(() => {
@@ -33,9 +33,9 @@ export function useSystemStatus() {
                     headers: { 'Authorization': `Bearer ${API_KEY}` }
                 })
 
-                const { is_indexing, last_update } = res.data
+                const { is_indexing, docs_version } = res.data
                 setIsIndexing(is_indexing)
-                setLastUpdate(last_update)
+                setServerVersion(docs_version)
             } catch (e) {
                 // Silent fail
             }
@@ -44,5 +44,5 @@ export function useSystemStatus() {
         return () => clearInterval(interval)
     }, [isBackendReady])
 
-    return { isBackendReady, connectionRetries, isIndexing, lastUpdate }
+    return { isBackendReady, connectionRetries, isIndexing, serverVersion }
 }

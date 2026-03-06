@@ -48,6 +48,7 @@ async def lifespan(app: FastAPI):
     
     # 根据配置初始化后台服务
     print("正在初始化后台服务...")
+    global_monitor.set_engine(engine)
     global_monitor.start() # 启动监控
     await scheduler.start() # 启动调度器
     
@@ -152,7 +153,9 @@ def set_config(payload: ConfigPayload, background_tasks: BackgroundTasks, author
             added_paths = new_paths - old_paths
             if added_paths:
                 print(f"配置: 新增路径 {added_paths}. 触发索引...")
-                background_tasks.add_task(scheduler.run_ingestion, list(added_paths))
+                # 提前占位表示索引即将开始，避免前端轮询窗口期的竞态
+                engine.start_job()
+                background_tasks.add_task(scheduler.run_ingestion, list(added_paths), is_prestarted=True)
 
         # 如果需要重启监控器
         if "watch_paths" in update_data or "enable_watchdog" in update_data:
@@ -300,20 +303,20 @@ def get_system_status(authorized: bool = Depends(verify_token)):
     """
     # 检查监控器的索引器状态
     monitor_jobs = global_monitor.ingestor.busy_jobs if global_monitor and global_monitor.ingestor else 0
-    monitor_update = global_monitor.ingestor.last_update_time if global_monitor and global_monitor.ingestor else 0
     
     # 同时检查本地 API 引擎 (如网页索引)
     api_jobs = engine.busy_jobs if engine else 0
-    api_update = engine.last_update_time if engine else 0
     
     total_jobs = monitor_jobs + api_jobs
-    last_update = max(monitor_update, api_update)
+    
+    # 获取全局版本号
+    docs_version = engine.docs_version if engine else 1
     
     return {
         "status": "success",
         "is_indexing": total_jobs > 0,
         "pending_jobs": total_jobs,
-        "last_update": last_update 
+        "docs_version": docs_version
     }
 
 @app.post("/ingest/webpage")
@@ -392,7 +395,8 @@ async def query_kb(payload: QueryPayload, session_id: Optional[str] = Query(None
 def list_documents(authorized: bool = Depends(verify_token)):
     try:
         docs = query_engine.get_documents_data()
-        return {"status": "success", "documents": docs}
+        docs_version = engine.docs_version if engine else 1
+        return {"status": "success", "documents": docs, "docs_version": docs_version}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

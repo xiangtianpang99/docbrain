@@ -53,6 +53,7 @@ class IngestionEngine:
         self.busy_jobs = 0
         import time
         self.last_update_time = time.time()
+        self.docs_version = 1
 
     def start_job(self):
         self.busy_jobs += 1
@@ -62,6 +63,7 @@ class IngestionEngine:
              self.busy_jobs -= 1
         import time
         self.last_update_time = time.time()
+        self.docs_version += 1
 
     def parse_file(self, file_path: str) -> List[Document]:
         """

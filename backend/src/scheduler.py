@@ -69,9 +69,14 @@ class DocBrainScheduler:
                 print(f"调度器错误: {e}")
                 await asyncio.sleep(60) # 出错后1分钟重试
 
-    def run_ingestion(self, paths):
-        for path in paths:
-            print(f"Scheduler: Ingesting {path}...")
-            self.ingestion_engine.ingest_directory(path)
+    def run_ingestion(self, paths, is_prestarted=False):
+        try:
+            for path in paths:
+                print(f"Scheduler: Ingesting {path}...")
+                self.ingestion_engine.ingest_directory(path)
+        finally:
+            if is_prestarted and self.ingestion_engine:
+                 # 释放调用方事先占用的 1 个 busy_job 坑位
+                 self.ingestion_engine.end_job()
 
 scheduler = DocBrainScheduler()
